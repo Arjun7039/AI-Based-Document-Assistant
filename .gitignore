@@ -1,0 +1,36 @@
+# ─── Environment ───
+.env
+.env.local
+.env.production
+.env.example
+
+# ─── Python ───
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# ─── Database (local dev) ───
+*.db
+*.sqlite3
+
+# ─── Vector store (local dev) ───
+chroma_store/
+
+# ─── Uploads (local dev) ───
+uploads/
+
+# ─── Node ───
+node_modules/
+dist/
+
+# ─── IDE ───
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── OS ───
+.DS_Store
+Thumbs.db

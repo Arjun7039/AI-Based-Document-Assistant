@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
-    LLM_MODEL: str = "gemini-1.5-flash"
+    LLM_MODEL: str = "gemini-3.5-flash"
     LLM_TEMPERATURE: float = 0.2
     MAX_CONTEXT_TOKENS: int = 8000
 

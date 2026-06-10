@@ -72,10 +72,7 @@ def _call_gemini(messages: list[dict], image_bytes: bytes | None = None, image_m
             gemini_messages.append({"role": "model", "parts": [msg["content"]]})
 
     model_name = settings.LLM_MODEL
-    clean_name = model_name.lower().strip()
-    if "3.5" in clean_name or "3.5-flash" in clean_name:
-        logger.info(f"Mapping model '{model_name}' to 'gemini-1.5-flash' (most stable & available)")
-        model_name = "gemini-1.5-flash"
+    logger.info(f"Calling Gemini model: {model_name}")
 
     model = genai.GenerativeModel(
         model_name=model_name,

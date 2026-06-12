@@ -30,7 +30,7 @@ class Settings(BaseSettings):
 
     # ─── Embeddings ───
     EMBEDDING_PROVIDER: str = "gemini"  # "gemini" | "groq"
-    EMBEDDING_MODEL: str = "models/text-embedding-004"
+    EMBEDDING_MODEL: str = "models/gemini-embedding-2"
     EMBEDDING_DIMENSION: int = 768
 
     # ─── Vector DB ───

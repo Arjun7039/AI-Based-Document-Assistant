@@ -96,12 +96,16 @@ let backendAvailable = null
 
 export async function checkBackend(forceRecheck = false) {
   if (backendAvailable === true && !forceRecheck) return true
+  const url = `${API_URL}/api/health`
+  console.log('[DocMind] Checking backend at:', url || '(empty — VITE_API_URL not set!)')
   try {
     // Timeout set to 60s to handle Render free-tier cold starts (30-60s)
-    const res = await axios.get(`${API_URL}/api/health`, { timeout: 60000 })
+    const res = await axios.get(url, { timeout: 60000 })
     const contentType = res.headers?.['content-type'] || ''
     backendAvailable = contentType.includes('application/json') && res.data?.status === 'ok'
-  } catch {
+    console.log('[DocMind] Backend response:', res.data, '| Connected:', backendAvailable)
+  } catch (err) {
+    console.error('[DocMind] Backend check FAILED:', err.message)
     backendAvailable = false
   }
   return backendAvailable

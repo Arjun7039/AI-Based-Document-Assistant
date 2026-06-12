@@ -18,7 +18,19 @@ export default function Sidebar() {
   } = useStore()
 
   useEffect(() => {
-    checkBackend().then(setIsLive)
+    let cancelled = false
+    const tryConnect = async () => {
+      const result = await checkBackend(true)
+      if (!cancelled) {
+        setIsLive(result)
+        if (!result) {
+          // Retry every 10 seconds until connected
+          setTimeout(tryConnect, 10000)
+        }
+      }
+    }
+    tryConnect()
+    return () => { cancelled = true }
   }, [])
 
   return (

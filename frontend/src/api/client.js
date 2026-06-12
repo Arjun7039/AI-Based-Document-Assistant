@@ -94,12 +94,11 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 // ─── Check if backend is available ───
 let backendAvailable = null
 
-export async function checkBackend() {
-  if (backendAvailable === true) return true
+export async function checkBackend(forceRecheck = false) {
+  if (backendAvailable === true && !forceRecheck) return true
   try {
-    // Use /api/health so it goes through Vite's proxy to the real backend.
-    // Also verify the response is JSON (not Vite's SPA fallback serving index.html).
-    const res = await axios.get(`${API_URL}/api/health`, { timeout: 3000 })
+    // Timeout set to 60s to handle Render free-tier cold starts (30-60s)
+    const res = await axios.get(`${API_URL}/api/health`, { timeout: 60000 })
     const contentType = res.headers?.['content-type'] || ''
     backendAvailable = contentType.includes('application/json') && res.data?.status === 'ok'
   } catch {

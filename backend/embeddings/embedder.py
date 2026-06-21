@@ -60,17 +60,13 @@ def embed_texts(texts: list[str], progress_callback=None) -> list[list[float]]:
         try:
             return _embed_texts_gemini(texts, progress_callback)
         except ResourceExhausted as e:
-            msg = (
-                "\n"
-                "========================================================================================\n"
-                "❌ GEMINI DAILY EMBEDDING QUOTA EXHAUSTED (1,000/day limit on Free API keys).\n"
-                "To fix this immediately, please open your .env file and update:\n"
-                "  EMBEDDING_PROVIDER=local\n"
-                "This will seamlessly switch your embeddings to a local CPU-based 768-dimension model.\n"
-                "========================================================================================"
+            logger.warning(
+                "Gemini API Quota Exhausted! Automatically falling back to local SentenceTransformer embeddings..."
             )
-            logger.error(msg)
-            raise RuntimeError(f"Gemini API Quota Exhausted. {msg}") from e
+            return _embed_texts_local(texts, progress_callback)
+        except Exception as e:
+            logger.error(f"Gemini embedding failed with an unexpected error: {e}. Falling back to local embeddings...")
+            return _embed_texts_local(texts, progress_callback)
 
 
 def embed_query(text: str) -> list[float]:
@@ -83,11 +79,11 @@ def embed_query(text: str) -> list[float]:
         try:
             return _embed_query_gemini(text)
         except ResourceExhausted as e:
-            msg = (
-                "Gemini daily embedding quota exhausted. Please set EMBEDDING_PROVIDER=local in your .env file."
-            )
-            logger.error(msg)
-            raise RuntimeError(msg) from e
+            logger.warning("Gemini query embedding quota exhausted. Falling back to local embeddings...")
+            return _embed_query_local(text)
+        except Exception as e:
+            logger.error(f"Gemini query embedding failed: {e}. Falling back to local embeddings...")
+            return _embed_query_local(text)
 
 
 def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[float]]:

@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     MAX_CONTEXT_TOKENS: int = 16000
 
     # ─── Embeddings ───
-    EMBEDDING_PROVIDER: str = "gemini"  # "gemini" | "groq"
+    EMBEDDING_PROVIDER: str = "gemini"  # "gemini" | "local" | "groq"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"
     EMBEDDING_DIMENSION: int = 768
 

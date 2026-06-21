@@ -27,5 +27,8 @@ def parse_document(content: bytes, filename: str, file_type: str) -> list[TextCh
     elif ft in ("txt", "md", "json"):
         from ingestion.parsers.txt_parser import parse_txt
         return parse_txt(content, filename)
+    elif ft in ("png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff"):
+        from ingestion.parsers.image_parser import parse_image
+        return parse_image(content, filename)
     else:
         raise ValueError(f"No parser available for file type: {ft}")

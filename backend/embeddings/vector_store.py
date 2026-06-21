@@ -51,7 +51,7 @@ class PineconeStore(VectorStore):
                 "id": vec_id,
                 "values": embedding,
                 "metadata": {
-                    "text": chunk["text"][:1000],  # Pinecone metadata limit
+                    "text": chunk["text"],  # Full text (fits within 40KB Pinecone metadata limit)
                     "document_id": document_id,
                     "filename": chunk["filename"],
                     "page_number": chunk["page_number"],

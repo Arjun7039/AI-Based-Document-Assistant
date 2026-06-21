@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gemini-3.5-flash"
     LLM_TEMPERATURE: float = 0.2
-    MAX_CONTEXT_TOKENS: int = 8000
+    MAX_CONTEXT_TOKENS: int = 16000
 
     # ─── Embeddings ───
     EMBEDDING_PROVIDER: str = "gemini"  # "gemini" | "groq"
@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     TOP_K_RETRIEVAL: int = 5
 
     # ─── Upload Limits ───
-    MAX_FILE_SIZE_MB: int = 50
-    ALLOWED_EXTENSIONS: str = "pdf,docx,xlsx,xls,csv,pptx,txt,md,json"
+    MAX_FILE_SIZE_MB: int = 200
+    ALLOWED_EXTENSIONS: str = "pdf,docx,xlsx,xls,csv,pptx,txt,md,json,png,jpg,jpeg,webp,gif,bmp,tiff"
 
     # ─── Redis (production only) ───
     REDIS_URL: Optional[str] = None

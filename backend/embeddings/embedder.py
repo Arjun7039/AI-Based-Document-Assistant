@@ -1,4 +1,8 @@
-"""Embedding Service — generates vector embeddings via Google Gemini or local SentenceTransformers."""
+"""Embedding Service — generates vector embeddings via Google Gemini or local SentenceTransformers.
+
+Optimized for large documents (500+ pages) with batched processing, progress logging,
+and rate-limit aware pacing.
+"""
 
 import time
 import google.generativeai as genai
@@ -38,18 +42,23 @@ def _get_local_model():
     return _local_model
 
 
-def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings for a list of texts using the configured provider (gemini or local)."""
+def embed_texts(texts: list[str], progress_callback=None) -> list[list[float]]:
+    """Generate embeddings for a list of texts using the configured provider (gemini or local).
+
+    Args:
+        texts: List of text strings to embed.
+        progress_callback: Optional callable(current_batch, total_batches) for progress tracking.
+    """
     if not texts:
         return []
 
     provider = (settings.EMBEDDING_PROVIDER or "gemini").lower().strip()
 
     if provider == "local":
-        return _embed_texts_local(texts)
+        return _embed_texts_local(texts, progress_callback)
     else:
         try:
-            return _embed_texts_gemini(texts)
+            return _embed_texts_gemini(texts, progress_callback)
         except ResourceExhausted as e:
             msg = (
                 "\n"
@@ -81,17 +90,23 @@ def embed_query(text: str) -> list[float]:
             raise RuntimeError(msg) from e
 
 
-def _embed_texts_gemini(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings via Gemini."""
+def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[float]]:
+    """Generate embeddings via Gemini with concurrent batched processing for speed."""
     _ensure_gemini_configured()
-    
-    embeddings = []
+
+    import concurrent.futures
+
+    embeddings_map = {}
     batch_size = 90  # Safe batch size for Gemini embedding requests
+    batches = []
     
     for i in range(0, len(texts), batch_size):
-        batch = texts[i : i + batch_size]
+        batches.append(texts[i : i + batch_size])
         
-        # Exponential backoff retry loop
+    total_batches = len(batches)
+    logger.info(f"Embedding {len(texts)} texts via Gemini in {total_batches} batches (batch_size={batch_size}) concurrently")
+
+    def process_batch(idx, batch):
         retries = 5
         delay = 2.0
         for attempt in range(retries):
@@ -103,25 +118,45 @@ def _embed_texts_gemini(texts: list[str]) -> list[list[float]]:
                     task_type="retrieval_document",
                     output_dimensionality=settings.EMBEDDING_DIMENSION
                 )
-                embeddings.extend(result['embedding'])
-                break
+                return idx, result['embedding']
             except (ResourceExhausted, GoogleAPIError) as e:
                 if attempt == retries - 1:
                     raise
-                logger.warning(f"Gemini Embedding rate limit hit: {e}. Retrying in {delay}s...")
+                logger.warning(f"Gemini Embedding rate limit hit on batch {idx}: {e}. Retrying in {delay}s...")
                 time.sleep(delay)
                 delay *= 2.0
             except Exception as e:
-                logger.error(f"Unexpected error during embedding: {e}")
+                logger.error(f"Unexpected error during embedding on batch {idx}: {e}")
                 raise
 
-    return embeddings
+    completed_batches = 0
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(process_batch, i, batch): i for i, batch in enumerate(batches)}
+        
+        for future in concurrent.futures.as_completed(futures):
+            idx, batch_embeddings = future.result()
+            embeddings_map[idx] = batch_embeddings
+            
+            completed_batches += 1
+            if progress_callback:
+                progress_callback(completed_batches, total_batches)
+            
+            if completed_batches % 5 == 0 or completed_batches == total_batches:
+                logger.info(f"  Gemini embedding progress: batch {completed_batches}/{total_batches}")
+
+    # Reconstruct in original order
+    final_embeddings = []
+    for i in range(total_batches):
+        final_embeddings.extend(embeddings_map[i])
+
+    return final_embeddings
 
 
 def _embed_query_gemini(text: str) -> list[float]:
     """Generate query embedding via Gemini."""
     _ensure_gemini_configured()
-    
+
     retries = 3
     delay = 1.0
     for attempt in range(retries):
@@ -141,12 +176,35 @@ def _embed_query_gemini(text: str) -> list[float]:
             delay *= 2.0
 
 
-def _embed_texts_local(texts: list[str]) -> list[list[float]]:
-    """Generate embeddings locally using sentence-transformers."""
+def _embed_texts_local(texts: list[str], progress_callback=None) -> list[list[float]]:
+    """Generate embeddings locally using sentence-transformers with batched processing.
+
+    Processes in batches of 64 to prevent OOM on large documents (500+ pages).
+    """
     model = _get_local_model()
-    logger.info(f"Embedding {len(texts)} texts locally on CPU...")
-    embeddings = model.encode(texts, show_progress_bar=False)
-    return embeddings.tolist()
+    batch_size = 64
+    total_batches = (len(texts) + batch_size - 1) // batch_size
+
+    logger.info(f"Embedding {len(texts)} texts locally in {total_batches} batches (batch_size={batch_size})")
+
+    all_embeddings = []
+    for batch_idx in range(total_batches):
+        start = batch_idx * batch_size
+        end = min(start + batch_size, len(texts))
+        batch = texts[start:end]
+
+        batch_embeddings = model.encode(batch, show_progress_bar=False)
+        all_embeddings.extend(batch_embeddings.tolist())
+
+        # Progress callback
+        if progress_callback:
+            progress_callback(batch_idx + 1, total_batches)
+
+        if (batch_idx + 1) % 10 == 0 or batch_idx == total_batches - 1:
+            logger.info(f"  Local embedding progress: batch {batch_idx + 1}/{total_batches} "
+                        f"({len(all_embeddings)}/{len(texts)} vectors)")
+
+    return all_embeddings
 
 
 def _embed_query_local(text: str) -> list[float]:

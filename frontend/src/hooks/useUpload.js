@@ -22,10 +22,16 @@ export default function useUpload() {
     'text/plain',
     'text/markdown',
     'application/json',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'image/gif',
+    'image/bmp',
+    'image/tiff',
   ]
 
-  const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'pptx', 'txt', 'md', 'json']
-  const MAX_SIZE_MB = 50
+  const ALLOWED_EXTENSIONS = ['pdf', 'docx', 'xlsx', 'xls', 'csv', 'pptx', 'txt', 'md', 'json', 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'tiff']
+  const MAX_SIZE_MB = 200
 
   const validateFile = useCallback((file) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
@@ -86,7 +92,7 @@ export default function useUpload() {
       // Poll for processing completion
       setUploadState(true, 100)
       let attempts = 0
-      const maxAttempts = 60
+      const maxAttempts = 300  // 300 × 2s = 10 min timeout for large docs (500+ pages)
 
       const poll = async () => {
         while (attempts < maxAttempts) {

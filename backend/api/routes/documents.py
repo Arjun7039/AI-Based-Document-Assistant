@@ -28,6 +28,8 @@ async def get_document_status(
         "document_id": doc.id,
         "status": doc.status,
         "chunks_indexed": doc.chunks_indexed,
+        "pages": doc.pages,
+        "progress_percent": doc.progress_percent or 0,
         "processing_time_ms": doc.processing_time_ms,
     }
 

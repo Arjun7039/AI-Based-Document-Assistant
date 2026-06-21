@@ -106,7 +106,11 @@ async def upload_document(
 
 
 def run_ingestion_in_background(doc_id: str, filename: str, ext: str, content: bytes):
-    """Run ingestion pipeline in a background task with a fresh database session."""
+    """Run ingestion pipeline in a background task with a fresh database session.
+
+    Includes real-time progress tracking that writes to the database so the
+    frontend can poll for accurate progress during large document processing.
+    """
     from db.database import SessionLocal
     from models.document import Document
     from ingestion.pipeline import run_pipeline
@@ -114,20 +118,39 @@ def run_ingestion_in_background(doc_id: str, filename: str, ext: str, content: b
     logger.info(f"Background Ingestion START: {filename} ({doc_id})")
     start_time = time.time()
     db = SessionLocal()
+
+    def _update_progress(stage: str, percent: int):
+        """Write processing progress to the database for frontend polling."""
+        try:
+            doc = db.query(Document).filter(Document.id == doc_id).first()
+            if doc:
+                doc.progress_percent = min(percent, 99)  # Reserve 100 for completion
+                db.commit()
+                logger.debug(f"Progress update: {doc_id} → {stage} {percent}%")
+        except Exception as e:
+            logger.warning(f"Failed to update progress for {doc_id}: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     try:
         document = db.query(Document).filter(Document.id == doc_id).first()
         if not document:
             logger.error(f"Document {doc_id} not found in database for background ingestion")
             return
 
-        result = run_pipeline(doc_id, filename, ext, content, db)
+        result = run_pipeline(doc_id, filename, ext, content, db, progress_callback=_update_progress)
         elapsed_ms = int((time.time() - start_time) * 1000)
 
-        document.status = "ready"
-        document.pages = result.get("pages", 0)
-        document.chunks_indexed = result.get("chunks_indexed", 0)
-        document.processing_time_ms = elapsed_ms
-        db.commit()
+        document = db.query(Document).filter(Document.id == doc_id).first()
+        if document:
+            document.status = "ready"
+            document.pages = result.get("pages", 0)
+            document.chunks_indexed = result.get("chunks_indexed", 0)
+            document.processing_time_ms = elapsed_ms
+            document.progress_percent = 100
+            db.commit()
         logger.info(f"Background Ingestion DONE: {doc_id} — {result.get('chunks_indexed', 0)} chunks in {elapsed_ms}ms")
     except Exception as e:
         import traceback
@@ -138,6 +161,7 @@ def run_ingestion_in_background(doc_id: str, filename: str, ext: str, content: b
             if document:
                 document.status = "failed"
                 document.error_message = str(e)
+                document.progress_percent = 0
                 db.commit()
         except Exception as db_err:
             logger.error(f"Failed to update document error status: {db_err}")

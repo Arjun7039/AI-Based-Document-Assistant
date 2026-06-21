@@ -28,6 +28,7 @@ class Document(Base):
     file_size_bytes = Column(Integer, default=0)
     storage_key = Column(String(1000), nullable=True)  # key in R2 / local path
     processing_time_ms = Column(Integer, nullable=True)
+    progress_percent = Column(Integer, default=0)  # 0-100 progress tracking for large docs
     error_message = Column(Text, nullable=True)
 
     # Relationships
@@ -51,6 +52,7 @@ class Document(Base):
             "chunks_indexed": self.chunks_indexed,
             "file_size_bytes": self.file_size_bytes,
             "processing_time_ms": self.processing_time_ms,
+            "progress_percent": self.progress_percent or 0,
             "session_id": self.session_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

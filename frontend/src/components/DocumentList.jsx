@@ -55,7 +55,14 @@ export default function DocumentList() {
                 <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin shrink-0" />
               )}
 
-              <span className="truncate flex-1 text-sm leading-normal" title={doc.filename}>{doc.filename}</span>
+              <div className="flex-1 min-w-0">
+                <span className="truncate block text-sm leading-normal" title={doc.filename}>{doc.filename}</span>
+                {doc.status === 'failed' && doc.errorMessage && (
+                  <span className="block text-xs text-red-500 mt-0.5 truncate" title={doc.errorMessage}>
+                    {doc.errorMessage}
+                  </span>
+                )}
+              </div>
 
               <button
                 onClick={(e) => { e.stopPropagation(); removeDocument(doc.id) }}

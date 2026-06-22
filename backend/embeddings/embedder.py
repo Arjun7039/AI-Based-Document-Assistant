@@ -60,6 +60,8 @@ def embed_texts(texts: list[str], progress_callback=None) -> list[list[float]]:
         try:
             return _embed_texts_gemini(texts, progress_callback)
         except ResourceExhausted as e:
+            if settings.APP_ENV == "production":
+                raise RuntimeError("Gemini API exhausted please try again after some time")
             logger.warning(
                 "Gemini API Quota Exhausted! Automatically falling back to local SentenceTransformer embeddings..."
             )
@@ -79,6 +81,8 @@ def embed_query(text: str) -> list[float]:
         try:
             return _embed_query_gemini(text)
         except ResourceExhausted as e:
+            if settings.APP_ENV == "production":
+                raise RuntimeError("Gemini API exhausted please try again after some time")
             logger.warning("Gemini query embedding quota exhausted. Falling back to local embeddings...")
             return _embed_query_local(text)
         except Exception as e:
@@ -118,7 +122,7 @@ def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[f
             except (ResourceExhausted, GoogleAPIError) as e:
                 if attempt == retries - 1:
                     raise
-                logger.warning(f"Gemini Embedding rate limit hit on batch {idx}: {e}. Retrying in {delay}s...")
+                logger.warning(f"Gemini API rate limit hit on batch {idx} (Retrying in {delay}s...)")
                 time.sleep(delay)
                 delay *= 2.0
             except Exception as e:
@@ -127,9 +131,13 @@ def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[f
 
     completed_batches = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(process_batch, i, batch): i for i, batch in enumerate(batches)}
-        
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        # Submit tasks with a slight delay to prevent hitting burst limits instantly
+        futures = {}
+        for i, batch in enumerate(batches):
+            futures[executor.submit(process_batch, i, batch)] = i
+            time.sleep(0.5)  # 500ms delay between batch submissions
+            
         for future in concurrent.futures.as_completed(futures):
             idx, batch_embeddings = future.result()
             embeddings_map[idx] = batch_embeddings

@@ -31,6 +31,7 @@ async def get_document_status(
         "pages": doc.pages,
         "progress_percent": doc.progress_percent or 0,
         "processing_time_ms": doc.processing_time_ms,
+        "error_message": doc.error_message,
     }
 
 

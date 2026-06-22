@@ -159,6 +159,7 @@ const useStore = create((set, get) => ({
           pages: d.pages,
           chunksIndexed: d.chunks_indexed,
           uploadedAt: d.created_at,
+          errorMessage: d.error_message,
         }))
         set({
           messages: formattedMessages,

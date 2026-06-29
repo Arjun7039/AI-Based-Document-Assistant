@@ -12,8 +12,8 @@ from embeddings.embedder import embed_texts
 from embeddings.vector_store import get_vector_store
 from utils.logger import logger
 
-# Number of chunks to embed + store per batch. Increased to 500 for concurrent speed.
-PIPELINE_BATCH_SIZE = 500
+# Number of chunks to embed + store per batch. Tuned for Render free-tier memory limits.
+PIPELINE_BATCH_SIZE = 200
 
 
 def run_pipeline(doc_id: str, filename: str, file_type: str, content: bytes, db, progress_callback=None) -> dict:

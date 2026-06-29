@@ -3,11 +3,13 @@ import {
   loginUser,
   registerUser,
   getCurrentUser,
+  refreshAccessToken,
   fetchSessions,
   removeSession,
   fetchSessionDetails,
   getSessionDocuments,
   deleteDocument,
+  checkBackend,
 } from '../api/client'
 
 const generateId = () => `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
@@ -18,6 +20,7 @@ const useStore = create((set, get) => ({
   token: localStorage.getItem('docmind_token') || null,
   isAuthenticating: false,
   authError: null,
+  backendReady: null, // null = unknown, true = connected, false = unreachable
 
   loginAction: async (email, password) => {
     set({ isAuthenticating: true, authError: null })
@@ -72,16 +75,63 @@ const useStore = create((set, get) => ({
 
   checkAuth: async () => {
     const token = get().token
-    if (!token) return
+    if (!token) {
+      set({ backendReady: true }) // No token = backend check not needed for auth
+      return
+    }
     set({ isAuthenticating: true })
+
+    // First, wait for the backend to be available (handles Render cold starts)
+    const isLive = await checkBackend(true)
+    set({ backendReady: isLive })
+
+    if (!isLive) {
+      // Backend is down — DON'T clear the token. Keep retrying.
+      set({ isAuthenticating: false })
+      // Retry after 10 seconds
+      setTimeout(() => {
+        get().checkAuth()
+      }, 10000)
+      return
+    }
+
+    // Backend is ready — try to verify the token
     try {
       const user = await getCurrentUser()
       set({ user, isAuthenticating: false })
       // Load sessions but do NOT auto-switch — user should see welcome/documents first
       await get().loadSessions(false)
     } catch (err) {
-      localStorage.removeItem('docmind_token')
-      set({ user: null, token: null, isAuthenticating: false })
+      const status = err.response?.status
+
+      if (status === 401) {
+        // Token is expired — try to refresh it
+        console.log('[DocMind] Token expired, attempting refresh...')
+        try {
+          const refreshData = await refreshAccessToken()
+          if (refreshData) {
+            set({
+              user: refreshData.user,
+              token: refreshData.access_token,
+              isAuthenticating: false,
+            })
+            await get().loadSessions(false)
+            return
+          }
+        } catch {
+          // Refresh also failed
+        }
+        // Both failed — clear auth state
+        localStorage.removeItem('docmind_token')
+        set({ user: null, token: null, isAuthenticating: false })
+      } else {
+        // Network error or server error — DON'T log out, just retry
+        console.warn('[DocMind] Auth check failed (non-401), will retry:', err.message)
+        set({ isAuthenticating: false })
+        setTimeout(() => {
+          get().checkAuth()
+        }, 5000)
+      }
     }
   },
 

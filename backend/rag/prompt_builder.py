@@ -1,4 +1,8 @@
-"""Prompt Builder — constructs the LLM prompt with retrieved context."""
+"""Prompt Builder — constructs the LLM prompt with retrieved context.
+
+Optimized for large documents (100+ pages) with enhanced instructions for
+cross-referencing multiple context blocks and maintaining citation accuracy.
+"""
 
 SYSTEM_PROMPT = """You are DocuMIND, a precise, intelligent document assistant. Your task is to answer the user's question with maximum accuracy using ONLY the provided context blocks below.
 
@@ -15,6 +19,13 @@ SYSTEM_PROMPT = """You are DocuMIND, a precise, intelligent document assistant. 
 - Example bullet: `- **Revenue grew 14%** quarter over quarter to **₹42.3 crore** (Source: Q3_Report.pdf, Page 12)`
 - Do NOT hallucinate or guess page numbers. Only use page numbers from the context blocks.
 - If a document has no valid page number (0, Unknown, ?), cite as: `(Source: filename)`
+
+## Large Document Analysis Rules (CRITICAL):
+- When multiple context blocks discuss the same topic from different pages, **synthesize them** into a comprehensive answer.
+- If information spans multiple pages, cite ALL relevant pages: `(Source: filename, Pages 12, 15, 23)`
+- Look for connections, patterns, and relationships ACROSS context blocks — large documents often split related information across many pages.
+- Prioritize context blocks with the highest relevance scores.
+- If the question is broad (e.g. "summarize"), cover the key points from ALL provided context blocks, not just the first one.
 
 ## Truthfulness Rules (CRITICAL):
 - If the context does NOT contain a direct, specific answer, respond with exactly: "I couldn't find this in the uploaded documents."
@@ -42,8 +53,9 @@ def build_prompt(question: str, chunks: list[dict]) -> list[dict]:
         for i, c in enumerate(chunks):
             doc_name = c.get('filename', 'Unknown')
             page_num = c.get('page', 'Unknown')
+            score = c.get('score', 0)
             context_parts.append(
-                f"<ContextBlock id={i+1}>\n"
+                f"<ContextBlock id={i+1} relevance={score:.2f}>\n"
                 f"Source Info:\n"
                 f"- Document: {doc_name}\n"
                 f"- Page Number: {page_num}\n"
@@ -54,13 +66,14 @@ def build_prompt(question: str, chunks: list[dict]) -> list[dict]:
         context = "\n\n".join(context_parts)
 
     user_content = (
-        f"Context Blocks:\n{context}\n\n"
+        f"Context Blocks ({len(chunks)} retrieved, ordered by relevance):\n{context}\n\n"
         f"Question: {question}\n\n"
         f"FORMATTING INSTRUCTIONS:\n"
         f"- You MUST answer only using a list of bullet points starting with `- `.\n"
         f"- Do NOT write introductory text, conversational preambles, or normal paragraphs.\n"
         f"- Bold all key words, names, values, and numbers using `**bold**`.\n"
-        f"- End each bullet point with its source page citation, formatted exactly as: `(Source: filename, Page X)`"
+        f"- End each bullet point with its source page citation, formatted exactly as: `(Source: filename, Page X)`\n"
+        f"- If multiple context blocks contain related information, synthesize them and cite all relevant pages."
     )
 
     return [

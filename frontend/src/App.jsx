@@ -23,7 +23,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="h-screen flex items-center justify-center bg-slate-50">
+        <div className="h-dvh flex items-center justify-center bg-slate-50">
           <div className="flex flex-col items-center gap-4 text-center max-w-md px-6">
             <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
               <HiOutlineExclamationTriangle className="w-7 h-7 text-red-500" />
@@ -43,7 +43,7 @@ class ErrorBoundary extends React.Component {
 
 /* ── App State Machine ── */
 function AppContent() {
-  const { token, user, checkAuth, isAuthenticating, isSourcePanelOpen, toggleSourcePanel, sources } = useStore()
+  const { token, user, checkAuth, isAuthenticating, backendReady, isSourcePanelOpen, toggleSourcePanel, closeSourcePanel, sources } = useStore()
   const [showLanding, setShowLanding] = useState(true)
 
   useEffect(() => {
@@ -57,10 +57,46 @@ function AppContent() {
     }
   }, [token, user])
 
-  // Loading state
+  // Server waking up state — backend not ready yet but we have a stored token
+  if (token && backendReady === null) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4 text-center px-6">
+          <div className="w-12 h-12 rounded-2xl bg-slate-900 flex items-center justify-center shadow-lg">
+            <span className="text-white text-lg font-black">D</span>
+          </div>
+          <div className="w-8 h-8 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+          <div>
+            <p className="text-sm font-bold text-slate-700">Waking up server…</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-xs">Free-tier servers sleep after inactivity. This may take up to 60 seconds.</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Backend unreachable but has token — keep trying
+  if (token && backendReady === false && !user) {
+    return (
+      <div className="h-dvh flex items-center justify-center bg-slate-50">
+        <div className="flex flex-col items-center gap-4 text-center px-6">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+            <span className="text-amber-600 text-lg font-black">!</span>
+          </div>
+          <div className="w-6 h-6 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+          <div>
+            <p className="text-sm font-bold text-slate-700">Connecting to server…</p>
+            <p className="text-xs text-slate-400 mt-1 max-w-xs">The server appears to be starting up. Retrying automatically…</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Loading state — token exists, backend ready, authenticating
   if (token && !user && isAuthenticating) {
     return (
-      <div className="h-screen flex items-center justify-center bg-slate-50">
+      <div className="h-dvh flex items-center justify-center bg-slate-50">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Verifying session…</p>
@@ -83,9 +119,9 @@ function AppContent() {
   const sourcesCount = Array.isArray(sources) ? sources.length : 0
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50/50 overflow-hidden text-slate-900 font-sans">
+    <div className="h-dvh flex flex-col bg-slate-50/50 overflow-hidden text-slate-900 font-sans">
       <Header />
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         <Sidebar />
         <main className="flex-1 flex flex-col min-h-0 min-w-0 bg-white">
           <ChatWindow />
@@ -99,7 +135,16 @@ function AppContent() {
             <span className="text-[10px] font-bold">{sourcesCount}</span>
           </button>
         )}
-        {isSourcePanelOpen && <SourcePanel />}
+        {isSourcePanelOpen && (
+          <>
+            {/* Mobile overlay backdrop */}
+            <div
+              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
+              onClick={closeSourcePanel}
+            />
+            <SourcePanel />
+          </>
+        )}
       </div>
     </div>
   )

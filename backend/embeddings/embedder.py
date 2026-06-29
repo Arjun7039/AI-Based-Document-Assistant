@@ -1,10 +1,11 @@
 """Embedding Service — generates vector embeddings via Google Gemini or local SentenceTransformers.
 
 Optimized for large documents (500+ pages) with batched processing, progress logging,
-and rate-limit aware pacing.
+and rate-limit aware pacing with jittered backoff.
 """
 
 import time
+import random
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
 from config import settings
@@ -28,11 +29,11 @@ def _ensure_gemini_configured():
 def _get_local_model():
     global _local_model
     if _local_model is None:
-        logger.info("Initializing local SentenceTransformer model 'all-mpnet-base-v2' (768 dimensions)...")
+        logger.info("Initializing local SentenceTransformer model 'all-MiniLM-L6-v2' (384 dimensions)...")
         try:
             from sentence_transformers import SentenceTransformer
-            # Load on CPU for safety and compatibility
-            _local_model = SentenceTransformer('all-mpnet-base-v2', device="cpu")
+            # Load on CPU. This model is only ~80MB, so it easily fits in Render's 512MB free tier!
+            _local_model = SentenceTransformer('all-MiniLM-L6-v2', device="cpu")
             logger.info("Local SentenceTransformer model initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize local SentenceTransformer model: {e}")
@@ -91,7 +92,10 @@ def embed_query(text: str) -> list[float]:
 
 
 def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[float]]:
-    """Generate embeddings via Gemini with concurrent batched processing for speed."""
+    """Generate embeddings via Gemini with concurrent batched processing for speed.
+
+    Uses jittered exponential backoff to avoid thundering herd on rate limits.
+    """
     _ensure_gemini_configured()
 
     import concurrent.futures
@@ -105,6 +109,9 @@ def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[f
         
     total_batches = len(batches)
     logger.info(f"Embedding {len(texts)} texts via Gemini in {total_batches} batches (batch_size={batch_size}) concurrently")
+
+    # Use 1 worker in development to prevent hitting burst limits, 2 in production
+    max_workers = 2 if settings.APP_ENV == "production" else 1
 
     def process_batch(idx, batch):
         retries = 5
@@ -122,8 +129,11 @@ def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[f
             except (ResourceExhausted, GoogleAPIError) as e:
                 if attempt == retries - 1:
                     raise
-                logger.warning(f"Gemini API rate limit hit on batch {idx} (Retrying in {delay}s...)")
-                time.sleep(delay)
+                # Jittered exponential backoff to prevent thundering herd
+                jitter = random.uniform(0.5, 1.5)
+                wait_time = delay * jitter
+                logger.warning(f"Gemini API rate limit hit on batch {idx} (Retrying in {wait_time:.1f}s...)")
+                time.sleep(wait_time)
                 delay *= 2.0
             except Exception as e:
                 logger.error(f"Unexpected error during embedding on batch {idx}: {e}")
@@ -131,12 +141,14 @@ def _embed_texts_gemini(texts: list[str], progress_callback=None) -> list[list[f
 
     completed_batches = 0
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit tasks with a slight delay to prevent hitting burst limits instantly
         futures = {}
         for i, batch in enumerate(batches):
             futures[executor.submit(process_batch, i, batch)] = i
-            time.sleep(0.5)  # 500ms delay between batch submissions
+            # Strict pacing: wait 5s in production to stay safely under the 15 RPM limit (12 RPM max)
+            delay_sec = 5.0 if settings.APP_ENV == "production" else 0.5
+            time.sleep(delay_sec)
             
         for future in concurrent.futures.as_completed(futures):
             idx, batch_embeddings = future.result()
@@ -176,7 +188,8 @@ def _embed_query_gemini(text: str) -> list[float]:
         except (ResourceExhausted, GoogleAPIError) as e:
             if attempt == retries - 1:
                 raise
-            time.sleep(delay)
+            jitter = random.uniform(0.5, 1.5)
+            time.sleep(delay * jitter)
             delay *= 2.0
 
 

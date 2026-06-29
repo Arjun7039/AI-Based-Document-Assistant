@@ -8,25 +8,25 @@ export default function Header() {
   const userInitial = user?.email ? user.email.charAt(0).toUpperCase() : 'U'
 
   return (
-    <header className="flex items-center justify-between px-6 h-16 border-b border-slate-200 bg-white z-50">
+    <header className="flex items-center justify-between px-3 sm:px-6 h-14 sm:h-16 border-b border-slate-200 bg-white z-50 shrink-0">
       {/* Left */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3">
         <button
           onClick={toggleSidebar}
           className="p-2 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all lg:hidden"
         >
           <HiOutlineBars3 className="w-6 h-6" />
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-7 h-7 bg-slate-900 rounded-md flex items-center justify-center shadow-sm">
             <span className="text-white text-xs font-black">D</span>
           </div>
-          <h1 className="text-lg font-bold tracking-tight text-slate-900">DocuMIND</h1>
+          <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900">DocuMIND</h1>
         </div>
       </div>
 
       {/* Right */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2 sm:gap-4">
         {readyDocs > 0 && (
           <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />

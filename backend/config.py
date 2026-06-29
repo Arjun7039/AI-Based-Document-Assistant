@@ -25,13 +25,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
     LLM_MODEL: str = "gemini-3.5-flash"
+    LLM_FALLBACK_MODEL: str = "gemini-2.5-pro"
     LLM_TEMPERATURE: float = 0.2
-    MAX_CONTEXT_TOKENS: int = 16000
+    MAX_CONTEXT_TOKENS: int = 8192
 
     # ─── Embeddings ───
-    EMBEDDING_PROVIDER: str = "gemini"  # "gemini" | "local" | "groq"
+    EMBEDDING_PROVIDER: str = "local"  # "gemini" | "local" | "groq"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_DIMENSION: int = 384
 
     # ─── Vector DB ───
     VECTOR_STORE: str = "chroma"  # "chroma" | "pinecone"
@@ -51,12 +52,13 @@ class Settings(BaseSettings):
     # ─── Auth ───
     JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 10080  # 7 days
+    REFRESH_TOKEN_WINDOW_MINUTES: int = 14400  # 10 days — tokens within this window can be refreshed
 
     # ─── RAG Settings ───
-    CHUNK_SIZE: int = 800
-    CHUNK_OVERLAP: int = 150
-    TOP_K_RETRIEVAL: int = 5
+    CHUNK_SIZE: int = 1500
+    CHUNK_OVERLAP: int = 200
+    TOP_K_RETRIEVAL: int = 8
 
     # ─── Upload Limits ───
     MAX_FILE_SIZE_MB: int = 200

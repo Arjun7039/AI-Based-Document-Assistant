@@ -1,3 +1,11 @@
+"""LLM Generator — generates answers using a 3-tier fallback chain.
+
+Model priority:
+  1. gemini-3.5-flash (primary — advanced, fast, and high reasoning)
+  2. gemini-2.5-pro (secondary fallback — heavy reasoning if primary fails)
+  3. Groq llama-3.3-70b (final fallback — if Gemini fails or quota exhausted)
+"""
+
 from google.api_core.exceptions import ResourceExhausted
 import google.generativeai as genai
 from config import settings
@@ -27,19 +35,30 @@ def _get_groq_client():
 
 
 def generate_answer(messages: list[dict], image_bytes: bytes | None = None, image_mime: str | None = None) -> dict:
-    """Generate an answer using the LLM.
+    """Generate an answer using the LLM with a 3-tier fallback chain.
 
-    Tries Gemini first, falls back to Groq llama if Gemini fails.
+    Priority: gemini-3.5-flash → gemini-2.5-pro → Groq llama-3.3-70b
     """
-    # Try Gemini first
+    # Tier 1: Primary model (gemini-3.5-flash)
+    primary_model = settings.LLM_MODEL
     try:
-        return _call_gemini(messages, image_bytes, image_mime)
-    except ResourceExhausted as e:
-        logger.warning(f"Gemini quota exceeded: {e}. Switching to Groq fallback...")
+        return _call_gemini(messages, image_bytes, image_mime, model_name=primary_model)
+    except ResourceExhausted:
+        logger.warning(f"{primary_model} quota exceeded. Falling back to {settings.LLM_FALLBACK_MODEL}...")
     except Exception as e:
-        logger.warning(f"Gemini failed: {e}. Trying Groq fallback...")
+        logger.warning(f"{primary_model} failed: {e}. Falling back to {settings.LLM_FALLBACK_MODEL}...")
 
-    # Fallback to Groq
+    # Tier 2: Secondary Fallback (gemini-2.5-pro)
+    fallback_model = settings.LLM_FALLBACK_MODEL
+    if fallback_model and fallback_model != primary_model:
+        try:
+            return _call_gemini(messages, image_bytes, image_mime, model_name=fallback_model)
+        except ResourceExhausted:
+            logger.warning(f"{fallback_model} also exhausted. Falling back to Groq...")
+        except Exception as e:
+            logger.warning(f"{fallback_model} failed: {e}. Falling back to Groq...")
+
+    # Tier 3: Groq fallback
     try:
         groq_client = _get_groq_client()
         if groq_client:
@@ -49,16 +68,23 @@ def generate_answer(messages: list[dict], image_bytes: bytes | None = None, imag
     except Exception as e:
         logger.error(f"Groq fallback also failed: {e}")
 
-    raise RuntimeError("All LLM providers failed. Check your API keys.")
+    raise RuntimeError("All LLM providers failed. Check your API keys and quotas.")
 
 
-def _call_gemini(messages: list[dict], image_bytes: bytes | None = None, image_mime: str | None = None) -> dict:
-    """Call Google Gemini."""
+def _call_gemini(
+    messages: list[dict],
+    image_bytes: bytes | None = None,
+    image_mime: str | None = None,
+    model_name: str | None = None,
+) -> dict:
+    """Call Google Gemini with a specified model."""
     _ensure_gemini()
-    
+
+    model_name = model_name or settings.LLM_MODEL
+
     system_instruction = None
     gemini_messages = []
-    
+
     # Convert standard roles to Gemini roles (user, model)
     for msg in messages:
         if msg["role"] == "system":
@@ -71,14 +97,13 @@ def _call_gemini(messages: list[dict], image_bytes: bytes | None = None, image_m
         elif msg["role"] == "assistant":
             gemini_messages.append({"role": "model", "parts": [msg["content"]]})
 
-    model_name = settings.LLM_MODEL
     logger.info(f"Calling Gemini model: {model_name}")
 
     model = genai.GenerativeModel(
         model_name=model_name,
         system_instruction=system_instruction
     )
-    
+
     response = model.generate_content(
         gemini_messages,
         generation_config=genai.types.GenerationConfig(
@@ -101,7 +126,7 @@ def _call_gemini(messages: list[dict], image_bytes: bytes | None = None, image_m
 
 
 def _call_groq(messages: list[dict]) -> dict:
-    """Call Groq llama-3.3-70b as fallback."""
+    """Call Groq llama-3.3-70b as final fallback."""
     client = _get_groq_client()
     groq_model = "llama-3.3-70b-versatile"
 
@@ -109,7 +134,7 @@ def _call_groq(messages: list[dict]) -> dict:
         model=groq_model,
         messages=messages,
         temperature=settings.LLM_TEMPERATURE,
-        max_tokens=settings.MAX_CONTEXT_TOKENS,
+        max_tokens=min(settings.MAX_CONTEXT_TOKENS, 8000),  # Groq has a lower limit
     )
 
     choice = response.choices[0]

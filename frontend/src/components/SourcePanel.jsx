@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { HiOutlineDocumentText, HiOutlineArrowLeft } from 'react-icons/hi2'
+import { HiOutlineDocumentText, HiOutlineArrowLeft, HiOutlineXMark } from 'react-icons/hi2'
 import useStore from '../store/useStore'
 
 export default function SourcePanel() {
@@ -51,23 +51,34 @@ export default function SourcePanel() {
   }, [sources])
 
   return (
-    <aside className="w-80 lg:w-96 border-l border-slate-200 bg-white flex flex-col shrink-0 animate-slide-in-right">
+    <aside className="
+      fixed inset-0 z-50
+      lg:relative lg:inset-auto lg:z-auto
+      w-full lg:w-96
+      border-l border-slate-200 bg-white
+      flex flex-col shrink-0
+      animate-slide-in-right
+    ">
       {/* Header */}
-      <div className="h-16 px-5 flex items-center border-b border-slate-200 shrink-0 gap-2">
-        <button onClick={closeSourcePanel} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all">
+      <div className="h-14 sm:h-16 px-4 sm:px-5 flex items-center border-b border-slate-200 shrink-0 gap-2">
+        {/* Desktop: back arrow. Mobile: X button */}
+        <button onClick={closeSourcePanel} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all hidden lg:block">
           <HiOutlineArrowLeft className="w-5 h-5" />
+        </button>
+        <button onClick={closeSourcePanel} className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-50 transition-all lg:hidden">
+          <HiOutlineXMark className="w-5 h-5" />
         </button>
         <h2 className="font-bold text-sm text-slate-900">Sources</h2>
         <span className="ml-auto text-xs font-mono text-slate-500 font-bold">{groupedCitations.length} cited</span>
       </div>
 
       {/* Body Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-5 space-y-4 no-scrollbar">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-3 sm:space-y-4 no-scrollbar">
         {groupedCitations.length === 0 ? (
           <div className="text-xs text-slate-400 p-2">Source passages will appear here as you chat.</div>
         ) : (
           groupedCitations.map((c, i) => (
-            <div key={i} className="p-4 border border-slate-200 bg-slate-50/40 rounded-2xl space-y-3 shadow-sm">
+            <div key={i} className="p-3 sm:p-4 border border-slate-200 bg-slate-50/40 rounded-2xl space-y-2.5 sm:space-y-3 shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded">
                   [{i + 1}]
@@ -94,7 +105,7 @@ export default function SourcePanel() {
               )}
 
               {c.excerpts.length > 0 && (
-                <div className="space-y-2 border-t border-slate-100 pt-3">
+                <div className="space-y-2 border-t border-slate-100 pt-2.5 sm:pt-3">
                   {c.excerpts.map((exc, idx) => (
                     <p key={idx} className="text-xs text-slate-500 leading-relaxed italic border-l-2 border-slate-200 pl-2">
                       "{exc.slice(0, 150)}..."

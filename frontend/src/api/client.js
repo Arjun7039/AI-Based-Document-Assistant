@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || ''
 
 const api = axios.create({
   baseURL: API_URL,
-  timeout: 60000,
+  timeout: 120000, // 120s — handles Render free-tier cold starts (30-60s)
   headers: {
     'Content-Type': 'application/json',
   },
@@ -19,13 +19,75 @@ api.interceptors.request.use((config) => {
   return config
 })
 
-// ─── Response Interceptor: handle errors ───
+// ─── Response Interceptor: handle 401 with token refresh ───
+let isRefreshing = false
+let refreshSubscribers = []
+
+function subscribeTokenRefresh(cb) {
+  refreshSubscribers.push(cb)
+}
+
+function onTokenRefreshed(newToken) {
+  refreshSubscribers.forEach((cb) => cb(newToken))
+  refreshSubscribers = []
+}
+
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('docmind_token')
+  async (error) => {
+    const originalRequest = error.config
+
+    // If 401 and we haven't already tried refreshing
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+
+      const currentToken = localStorage.getItem('docmind_token')
+      if (!currentToken) {
+        return Promise.reject(error)
+      }
+
+      if (!isRefreshing) {
+        isRefreshing = true
+        try {
+          const refreshResponse = await axios.post(
+            `${API_URL}/api/auth/refresh`,
+            {},
+            {
+              headers: { Authorization: `Bearer ${currentToken}` },
+              timeout: 120000,
+            }
+          )
+          const newToken = refreshResponse.data.access_token
+          localStorage.setItem('docmind_token', newToken)
+
+          // Update user data if returned
+          if (refreshResponse.data.user) {
+            // Store will be updated when the retried request completes
+          }
+
+          isRefreshing = false
+          onTokenRefreshed(newToken)
+
+          // Retry the original request with new token
+          originalRequest.headers.Authorization = `Bearer ${newToken}`
+          return api(originalRequest)
+        } catch (refreshError) {
+          isRefreshing = false
+          refreshSubscribers = []
+          localStorage.removeItem('docmind_token')
+          return Promise.reject(error)
+        }
+      } else {
+        // Another refresh is in progress — queue this request
+        return new Promise((resolve) => {
+          subscribeTokenRefresh((newToken) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`
+            resolve(api(originalRequest))
+          })
+        })
+      }
     }
+
     return Promise.reject(error)
   }
 )
@@ -91,29 +153,59 @@ const mockResponses = [
 
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// ─── Check if backend is available ───
+// ─── Check if backend is available (with retry for cold starts) ───
 let backendAvailable = null
+let backendCheckInProgress = null
 
 export async function checkBackend(forceRecheck = false) {
   if (backendAvailable === true && !forceRecheck) return true
+
+  // If a check is already in progress, wait for it
+  if (backendCheckInProgress) return backendCheckInProgress
+
+  backendCheckInProgress = _doBackendCheck()
+  const result = await backendCheckInProgress
+  backendCheckInProgress = null
+  return result
+}
+
+async function _doBackendCheck() {
   const url = `${API_URL}/api/health`
   console.log('[DocMind] Checking backend at:', url || '(empty — VITE_API_URL not set!)')
-  try {
-    // Timeout set to 60s to handle Render free-tier cold starts (30-60s)
-    const res = await axios.get(url, { timeout: 60000 })
-    const contentType = res.headers?.['content-type'] || ''
-    backendAvailable = contentType.includes('application/json') && res.data?.status === 'ok'
-    console.log('[DocMind] Backend response:', res.data, '| Connected:', backendAvailable)
-  } catch (err) {
-    console.error('[DocMind] Backend check FAILED:', err.message)
-    backendAvailable = false
+
+  // Try up to 3 times with increasing delays for cold starts
+  const attempts = [60000, 30000, 15000] // timeouts: 60s, 30s, 15s
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      const res = await axios.get(url, { timeout: attempts[i] })
+      const contentType = res.headers?.['content-type'] || ''
+      backendAvailable = contentType.includes('application/json') && res.data?.status === 'ok'
+      if (backendAvailable) {
+        console.log('[DocMind] Backend connected:', res.data)
+        return true
+      }
+    } catch (err) {
+      console.warn(`[DocMind] Backend check attempt ${i + 1}/${attempts.length} failed:`, err.message)
+      if (i < attempts.length - 1) {
+        await delay(2000) // Wait 2s before retry
+      }
+    }
   }
-  return backendAvailable
+
+  console.error('[DocMind] Backend check FAILED after all attempts')
+  backendAvailable = false
+  return false
+}
+
+// ─── Wrapper that waits for backend before making API calls ───
+async function ensureBackend() {
+  if (backendAvailable === true) return true
+  return await checkBackend(true)
 }
 
 // ─── API Functions ───
 export async function uploadFile(file, sessionId, onProgress) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
 
   if (isLive) {
     const formData = new FormData()
@@ -122,6 +214,7 @@ export async function uploadFile(file, sessionId, onProgress) {
 
     const response = await api.post('/api/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000, // 5 min for large file uploads
       onUploadProgress: (progressEvent) => {
         const percent = Math.round(
           (progressEvent.loaded * 100) / progressEvent.total
@@ -150,7 +243,7 @@ export async function uploadFile(file, sessionId, onProgress) {
 }
 
 export async function pollDocumentStatus(documentId) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
 
   if (isLive) {
     const response = await api.get(`/api/documents/${documentId}/status`)
@@ -167,7 +260,7 @@ export async function pollDocumentStatus(documentId) {
 }
 
 export async function queryDocuments(question, sessionId, documentIds, topK, imageFile) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
 
   if (isLive) {
     const formData = new FormData()
@@ -181,6 +274,7 @@ export async function queryDocuments(question, sessionId, documentIds, topK, ima
 
     const response = await api.post('/api/query', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000, // 3 min for complex queries on large docs
     })
     return response.data
   }
@@ -196,7 +290,7 @@ export async function queryDocuments(question, sessionId, documentIds, topK, ima
 }
 
 export async function getSessionDocuments(sessionId) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
 
   if (isLive) {
     const response = await api.get(`/api/sessions/${sessionId}/documents`)
@@ -208,7 +302,7 @@ export async function getSessionDocuments(sessionId) {
 }
 
 export async function deleteDocument(documentId) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
 
   if (isLive) {
     await api.delete(`/api/documents/${documentId}`)
@@ -220,7 +314,7 @@ export async function deleteDocument(documentId) {
 }
 
 export async function fetchSessions() {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     const response = await api.get('/api/sessions')
     return response.data.sessions
@@ -229,7 +323,7 @@ export async function fetchSessions() {
 }
 
 export async function removeSession(sessionId) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     await api.delete(`/api/sessions/${sessionId}`)
     return true
@@ -238,7 +332,7 @@ export async function removeSession(sessionId) {
 }
 
 export async function fetchSessionDetails(sessionId) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     const response = await api.get(`/api/sessions/${sessionId}`)
     return response.data
@@ -247,7 +341,7 @@ export async function fetchSessionDetails(sessionId) {
 }
 
 export async function registerUser(email, password) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     const response = await api.post('/api/auth/register', { email, password })
     return response.data
@@ -261,7 +355,7 @@ export async function registerUser(email, password) {
 }
 
 export async function loginUser(email, password) {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     const response = await api.post('/api/auth/login', { email, password })
     return response.data
@@ -275,12 +369,32 @@ export async function loginUser(email, password) {
 }
 
 export async function getCurrentUser() {
-  const isLive = await checkBackend()
+  const isLive = await ensureBackend()
   if (isLive) {
     const response = await api.get('/api/auth/me')
     return response.data
   }
   return { user_id: 'mock_user_id', email: 'demo@docmind.ai', is_active: true }
+}
+
+export async function refreshAccessToken() {
+  const token = localStorage.getItem('docmind_token')
+  if (!token) return null
+  try {
+    const response = await axios.post(
+      `${API_URL}/api/auth/refresh`,
+      {},
+      {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 120000,
+      }
+    )
+    const newToken = response.data.access_token
+    localStorage.setItem('docmind_token', newToken)
+    return response.data
+  } catch {
+    return null
+  }
 }
 
 export default api

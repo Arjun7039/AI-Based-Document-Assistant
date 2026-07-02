@@ -11,7 +11,6 @@ Provider priority:
 
 import time
 import random
-import httpx
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
 from config import settings
@@ -22,7 +21,6 @@ _local_model = None
 
 # ─── HuggingFace Inference API Config ───
 HF_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
-HF_API_URL = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL_ID}"
 HF_BATCH_SIZE = 128  # Max texts per API call (HF handles up to ~128 well)
 
 
@@ -132,9 +130,18 @@ def embed_query(text: str) -> list[float]:
 #  HuggingFace Inference API (FREE — GPU-accelerated on HF servers)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# Try multiple endpoints — some networks/hosts block specific HF domains
+HF_ENDPOINTS = [
+    f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL_ID}",
+    f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}",
+    f"https://router.huggingface.co/hf-inference/models/{HF_MODEL_ID}",
+]
+
+_working_hf_endpoint = None  # Cache the first working endpoint
+
 
 def _hf_headers() -> dict:
-    """Build HTTP headers for HuggingFace API. Token is optional but recommended."""
+    """Build HTTP headers for HuggingFace API."""
     headers = {"Content-Type": "application/json"}
     token = settings.HUGGINGFACE_API_TOKEN
     if token:
@@ -142,62 +149,113 @@ def _hf_headers() -> dict:
     return headers
 
 
+def _find_working_endpoint() -> str:
+    """Test all HF endpoints and return the first one that's reachable."""
+    global _working_hf_endpoint
+    if _working_hf_endpoint:
+        return _working_hf_endpoint
+
+    import requests
+    import socket
+
+    # First, run DNS diagnostics
+    for host in ['api-inference.huggingface.co', 'router.huggingface.co', 'huggingface.co']:
+        try:
+            ip = socket.getaddrinfo(host, 443)[0][4][0]
+            logger.info(f"DNS OK: {host} -> {ip}")
+        except Exception as e:
+            logger.warning(f"DNS FAIL: {host} -> {e}")
+
+    # Try each endpoint
+    for endpoint in HF_ENDPOINTS:
+        try:
+            logger.info(f"Testing HuggingFace endpoint: {endpoint}")
+            response = requests.post(
+                endpoint,
+                headers=_hf_headers(),
+                json={"inputs": "test", "options": {"wait_for_model": True}},
+                timeout=30,
+            )
+            if response.status_code in [200, 503]:  # 503 = model loading, but endpoint works
+                _working_hf_endpoint = endpoint
+                logger.info(f"✅ Using HuggingFace endpoint: {endpoint}")
+                return endpoint
+            else:
+                logger.warning(f"Endpoint returned {response.status_code}: {endpoint}")
+        except Exception as e:
+            logger.warning(f"Endpoint unreachable: {endpoint} -> {e}")
+
+    raise RuntimeError(
+        "All HuggingFace API endpoints are unreachable. "
+        "Check network connectivity or set EMBEDDING_PROVIDER=local"
+    )
+
+
 def _hf_embed_batch(texts: list[str], batch_index: int = 0) -> list[list[float]]:
     """Send a batch of texts to HuggingFace Inference API and return embeddings.
 
-    Handles cold starts (model loading on HF servers) with retries.
+    Tries multiple API endpoints and caches the working one.
     """
+    import requests
+    import numpy as np
+
+    endpoint = _find_working_endpoint()
     retries = 4
-    delay = 5.0  # Initial delay — HF model cold start can take up to 20s
+    delay = 5.0
 
     for attempt in range(retries):
         try:
-            with httpx.Client(timeout=120.0) as client:
-                response = client.post(
-                    HF_API_URL,
-                    headers=_hf_headers(),
-                    json={"inputs": texts, "options": {"wait_for_model": True}},
-                )
+            response = requests.post(
+                endpoint,
+                headers=_hf_headers(),
+                json={"inputs": texts, "options": {"wait_for_model": True}},
+                timeout=120,
+            )
 
             if response.status_code == 200:
                 embeddings = response.json()
-                # HuggingFace returns list of list of floats for feature-extraction
-                # For sentence-transformers models, each text → [384] float vector
-                # But the API wraps each in an extra list: [[384 floats]] per text
-                # We need to handle both cases
                 result = []
                 for emb in embeddings:
-                    if isinstance(emb[0], list):
-                        # Model returned token-level embeddings, mean-pool them
-                        import numpy as np
-                        pooled = list(np.mean(emb, axis=0).tolist())
+                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                        # Token-level embeddings → mean-pool
+                        pooled = np.mean(emb, axis=0).tolist()
                         result.append(pooled)
                     else:
                         result.append(emb)
                 return result
 
             elif response.status_code == 503:
-                # Model is loading (cold start) — wait and retry
-                estimated_time = response.json().get("estimated_time", delay)
+                # Model loading (cold start)
+                body = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
+                estimated_time = body.get("estimated_time", delay)
                 wait_time = min(estimated_time + 2, 30)
                 logger.info(f"HuggingFace model loading (cold start), waiting {wait_time:.0f}s...")
                 time.sleep(wait_time)
                 continue
 
             elif response.status_code == 429:
-                # Rate limited
                 jitter = random.uniform(0.5, 1.5)
                 wait_time = delay * jitter
-                logger.warning(f"HuggingFace rate limit hit on batch {batch_index}. Retrying in {wait_time:.1f}s...")
+                logger.warning(f"HuggingFace rate limit on batch {batch_index}. Retrying in {wait_time:.1f}s...")
                 time.sleep(wait_time)
                 delay *= 2.0
                 continue
 
             else:
-                error_msg = response.text[:200]
+                error_msg = response.text[:300]
                 raise RuntimeError(f"HuggingFace API error {response.status_code}: {error_msg}")
 
-        except httpx.TimeoutException:
+        except requests.exceptions.ConnectionError as e:
+            if attempt == retries - 1:
+                raise
+            logger.warning(f"HuggingFace connection error on batch {batch_index} (attempt {attempt+1}): {e}")
+            # Reset cached endpoint — maybe a different one works
+            global _working_hf_endpoint
+            _working_hf_endpoint = None
+            time.sleep(delay)
+            delay *= 1.5
+
+        except requests.exceptions.Timeout:
             if attempt == retries - 1:
                 raise RuntimeError(f"HuggingFace API timeout after {retries} attempts on batch {batch_index}")
             logger.warning(f"HuggingFace API timeout on batch {batch_index}, retrying...")

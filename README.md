@@ -6,7 +6,7 @@ A production-ready, multi-format document intelligence platform that lets users 
 
 ## 🧠 What This Does
 
-Users upload documents — from 10 pages to 10,000 pages — and ask questions in plain English. The system retrieves only the relevant chunks, feeds them into an LLM with context, and returns a precise, grounded answer. No hallucination from memory. No manual searching. No page-by-page reading.
+Users upload documents — from 10 pages to 100+ pages — and ask questions in plain English. The system retrieves only the relevant chunks, feeds them into an LLM with context, and returns a precise, grounded answer. No hallucination from memory. No manual searching. No page-by-page reading.
 
 **Core Flow:**
 ```

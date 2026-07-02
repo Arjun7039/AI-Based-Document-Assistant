@@ -24,13 +24,14 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     GROQ_API_KEY: Optional[str] = None
+    HUGGINGFACE_API_TOKEN: Optional[str] = None
     LLM_MODEL: str = "gemini-3.5-flash"
     LLM_FALLBACK_MODEL: str = "gemini-2.5-pro"
     LLM_TEMPERATURE: float = 0.2
     MAX_CONTEXT_TOKENS: int = 8192
 
     # ─── Embeddings ───
-    EMBEDDING_PROVIDER: str = "local"  # "gemini" | "local" | "groq"
+    EMBEDDING_PROVIDER: str = "huggingface"  # "huggingface" | "gemini" | "local"
     EMBEDDING_MODEL: str = "models/gemini-embedding-2"
     EMBEDDING_DIMENSION: int = 384
 

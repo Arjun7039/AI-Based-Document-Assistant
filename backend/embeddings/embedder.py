@@ -130,11 +130,14 @@ def embed_query(text: str) -> list[float]:
 #  HuggingFace Inference API (FREE — GPU-accelerated on HF servers)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Try multiple endpoints — some networks/hosts block specific HF domains
+# Try multiple endpoints — Render blocks api-inference.huggingface.co DNS
+# so we prioritize router.huggingface.co (confirmed working on Render)
 HF_ENDPOINTS = [
+    # Router endpoint (works on Render — DNS resolves)
+    f"https://router.huggingface.co/hf-inference/models/{HF_MODEL_ID}/pipeline/feature-extraction",
+    # Legacy endpoints (may not resolve on some hosts)
     f"https://api-inference.huggingface.co/pipeline/feature-extraction/{HF_MODEL_ID}",
     f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}",
-    f"https://router.huggingface.co/hf-inference/models/{HF_MODEL_ID}",
 ]
 
 _working_hf_endpoint = None  # Cache the first working endpoint

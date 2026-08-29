@@ -80,8 +80,30 @@ async def query_documents(
         from rag.retriever import retrieve_chunks
         from rag.prompt_builder import build_prompt
         from rag.generator import generate_answer
+        from config import settings as app_settings
+    except ImportError:
+        # RAG modules not yet built — return helpful message
+        latency_ms = int((time.time() - start_time) * 1000)
+        answer = "The RAG pipeline is not yet configured. Please complete Phase 3 (Ingestion) and Phase 4 (Query Engine) setup."
 
-        top_k = top_k or 5
+        assistant_msg = ChatMessage(
+            session_id=session_id,
+            role="assistant",
+            content=answer,
+            latency_ms=latency_ms,
+        )
+        db.add(assistant_msg)
+        db.commit()
+
+        return {
+            "answer": answer,
+            "sources": [],
+            "tokens_used": 0,
+            "latency_ms": latency_ms,
+        }
+
+    try:
+        top_k = top_k or app_settings.TOP_K_RETRIEVAL
 
         # 1. Retrieve relevant chunks
         chunks = retrieve_chunks(
@@ -98,12 +120,17 @@ async def query_documents(
 
         latency_ms = int((time.time() - start_time) * 1000)
 
+        def _clean_page(p):
+            """Normalize page numbers — strip trailing '.0' from float casts."""
+            s = str(p) if p is not None else ""
+            return s[:-2] if s.endswith(".0") else s
+
         # Format sources
         sources = [
             {
                 "document_id": c.get("document_id", ""),
                 "filename": c.get("filename", ""),
-                "page": c.get("page", 0),
+                "page": _clean_page(c.get("page", 0)),
                 "chunk": c.get("text", ""),
                 "score": round(c.get("score", 0.0), 4),
             }
@@ -128,27 +155,6 @@ async def query_documents(
             "answer": result["answer"],
             "sources": sources,
             "tokens_used": result.get("tokens_used", 0),
-            "latency_ms": latency_ms,
-        }
-
-    except ImportError:
-        # RAG modules not yet built — return helpful message
-        latency_ms = int((time.time() - start_time) * 1000)
-        answer = "The RAG pipeline is not yet configured. Please complete Phase 3 (Ingestion) and Phase 4 (Query Engine) setup."
-
-        assistant_msg = ChatMessage(
-            session_id=session_id,
-            role="assistant",
-            content=answer,
-            latency_ms=latency_ms,
-        )
-        db.add(assistant_msg)
-        db.commit()
-
-        return {
-            "answer": answer,
-            "sources": [],
-            "tokens_used": 0,
             "latency_ms": latency_ms,
         }
 

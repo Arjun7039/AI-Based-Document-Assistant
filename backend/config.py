@@ -57,8 +57,10 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_WINDOW_MINUTES: int = 14400  # 10 days — tokens within this window can be refreshed
 
     # ─── RAG Settings ───
-    CHUNK_SIZE: int = 1500
-    CHUNK_OVERLAP: int = 200
+    # CHUNK_SIZE is tuned to all-MiniLM-L6-v2's 256-token context window:
+    # 900 chars ≈ 220 tokens, so chunks embed without silent truncation.
+    CHUNK_SIZE: int = 900
+    CHUNK_OVERLAP: int = 150
     TOP_K_RETRIEVAL: int = 8
 
     # ─── Upload Limits ───

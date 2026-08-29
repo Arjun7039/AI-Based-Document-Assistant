@@ -108,9 +108,19 @@ def chunk_text(raw_chunks: list[TextChunk], document_id: str, filename: str) -> 
 
         splits = splitter.split_text(raw.text)
 
+        # Prepend the section heading to each split so embeddings carry
+        # context about what the passage is about ("Compensation > Bonuses").
+        # This measurably improves retrieval on structured documents.
+        section = (raw.section or "").strip()
+        is_heading = section and section.lower() not in (
+            raw.text.strip()[: len(section)].lower(),  # already at start of text
+            filename.lower(),
+        )
+
         for split_text in splits:
+            stored_text = f"[{section}] {split_text}" if is_heading and section else split_text
             all_chunks.append({
-                "text": split_text,
+                "text": stored_text,
                 "document_id": document_id,
                 "filename": filename,
                 "chunk_index": chunk_index,

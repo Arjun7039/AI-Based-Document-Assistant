@@ -71,10 +71,18 @@ async def health_check():
 @app.get("/api/debug/config")
 async def debug_config():
     """Shows config status (no secrets exposed). Use this to troubleshoot."""
+    def _preview(key):
+        if not key:
+            return "NOT SET"
+        return key[:4] + "..." + key[-4:] if len(key) > 8 else "SET"
+
     return {
-        "openai_key_set": bool(settings.OPENAI_API_KEY and not settings.OPENAI_API_KEY.startswith("sk-...")),
-        "openai_key_preview": settings.OPENAI_API_KEY[:12] + "..." if settings.OPENAI_API_KEY else "NOT SET",
-        "groq_key_set": bool(settings.GROQ_API_KEY and not settings.GROQ_API_KEY.startswith("gsk_...")),
+        "gemini_key_set": bool(settings.GEMINI_API_KEY),
+        "gemini_key_preview": _preview(settings.GEMINI_API_KEY),
+        "groq_key_set": bool(settings.GROQ_API_KEY),
+        "huggingface_key_set": bool(settings.HUGGINGFACE_API_TOKEN),
+        "embedding_provider": settings.EMBEDDING_PROVIDER,
+        "llm_model": settings.LLM_MODEL,
         "vector_store": settings.VECTOR_STORE,
         "storage_backend": settings.STORAGE_BACKEND,
         "database": settings.DATABASE_URL.split("://")[0],

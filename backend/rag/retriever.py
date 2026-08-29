@@ -31,8 +31,9 @@ def retrieve_chunks(
     # Embed the query
     query_embedding = embed_query(query)
 
-    # Fetch more candidates than needed for re-ranking (2x over-fetch)
-    candidate_k = min(top_k * 2, top_k + 10)
+    # Fetch extra candidates so re-ranking + diversity filtering have a real pool
+    # to work with (3x over-fetch, capped to keep queries fast on large corpora)
+    candidate_k = min(top_k * 3, top_k + 20)
 
     # Search vector store
     vector_store = get_vector_store()

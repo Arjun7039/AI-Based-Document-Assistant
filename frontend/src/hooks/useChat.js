@@ -25,6 +25,14 @@ export default function useChat() {
       sessionId = createSession()
     }
 
+    // Auto-title the session from the first question if still "New Chat"
+    const { sessions, updateSessionTitle } = useStore.getState()
+    const currentSession = sessions.find((s) => s.id === sessionId)
+    if (currentSession && currentSession.title === 'New Chat' && question.trim()) {
+      const shortQ = question.trim().length > 35 ? question.trim().substring(0, 32) + '...' : question.trim()
+      updateSessionTitle(sessionId, shortQ)
+    }
+
     // Add user message
     addMessage({
       role: 'user',

@@ -351,7 +351,8 @@ const useStore = create((set, get) => ({
   isUploading: false,
   uploadProgress: 0,
   isQuerying: false,
-  isSidebarOpen: true,
+  // Sidebar starts open on desktop, closed on mobile so it never covers the chat
+  isSidebarOpen: typeof window !== 'undefined' && window.innerWidth >= 1024,
   isSourcePanelOpen: false,
 
   setUploadState: (isUploading, uploadProgress = 0) =>

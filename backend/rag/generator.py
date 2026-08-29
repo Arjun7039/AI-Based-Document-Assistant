@@ -118,8 +118,26 @@ def _call_gemini(
 
     logger.info(f"Gemini response: {tokens_used} tokens ({model_name})")
 
+    # Safely extract text — response.text raises ValueError if blocked or empty
+    try:
+        answer_text = response.text
+    except (ValueError, AttributeError):
+        # Check if response was blocked by safety filters
+        if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
+            logger.warning(f"Gemini response blocked: {response.prompt_feedback}")
+            answer_text = "The response was blocked by content safety filters. Please try rephrasing your question."
+        elif hasattr(response, 'candidates') and response.candidates:
+            # Try to extract partial text from candidates
+            candidate = response.candidates[0]
+            if hasattr(candidate, 'content') and candidate.content and candidate.content.parts:
+                answer_text = candidate.content.parts[0].text
+            else:
+                answer_text = "No response was generated. Please try again."
+        else:
+            answer_text = "No response was generated. Please try again."
+
     return {
-        "answer": response.text,
+        "answer": answer_text,
         "tokens_used": tokens_used,
         "model": model_name,
     }

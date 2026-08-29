@@ -1,8 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { HiOutlinePaperAirplane, HiOutlineSparkles, HiOutlinePhoto, HiXMark } from 'react-icons/hi2'
+import { HiOutlinePaperAirplane, HiOutlineSparkles, HiOutlinePhoto, HiXMark, HiOutlineDocumentArrowUp } from 'react-icons/hi2'
 import MessageBubble from './MessageBubble'
 import useStore from '../store/useStore'
 import useChat from '../hooks/useChat'
+import useUpload from '../hooks/useUpload'
 
 const SUGGESTIONS = [
   "Summarize the key points",
@@ -14,11 +15,14 @@ const SUGGESTIONS = [
 export default function ChatWindow() {
   const { messages, isQuerying, documents, selectedDocumentIds } = useStore()
   const { send } = useChat()
+  const { upload } = useUpload()
   const [input, setInput] = useState('')
   const [imageFile, setImageFile] = useState(null)
   const [imagePreview, setImagePreview] = useState(null)
   const messagesEndRef = useRef(null)
-  const fileInputRef = useRef(null)
+  const textareaRef = useRef(null)
+  const fileInputRef = useRef(null)   // image attachment picker
+  const docInputRef = useRef(null)    // first-document uploader (empty state)
   const hasDocuments = documents.length > 0
   const hasSelectedDocs = selectedDocumentIds.length > 0
   const showDeselectedWarning = hasDocuments && !hasSelectedDocs
@@ -27,6 +31,14 @@ export default function ChatWindow() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isQuerying])
 
+  // Auto-grow the textarea up to a cap as the user types
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`
+  }, [input])
+
   const handleSend = (e) => {
     e?.preventDefault()
     if ((!input.trim() && !imageFile) || isQuerying) return
@@ -34,6 +46,15 @@ export default function ChatWindow() {
     setInput('')
     setImageFile(null)
     setImagePreview(null)
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
+  }
+
+  const handleKeyDown = (e) => {
+    // Enter sends; Shift+Enter inserts a newline
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      handleSend()
+    }
   }
 
   const handleImageSelect = (e) => {
@@ -51,69 +72,99 @@ export default function ChatWindow() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  const focusInput = () => textareaRef.current?.focus()
+
+  const handleDocSelect = (e) => {
+    const files = e.target.files
+    if (files && files.length > 0) upload(files)
+    e.target.value = ''
+  }
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-white">
-      {/* Top Header Title */}
-      <div className="h-12 sm:h-16 border-b border-slate-200 px-4 sm:px-6 flex items-center shrink-0">
-        <h1 className="font-bold text-sm sm:text-base text-slate-800">Ask your documents</h1>
+    <div className="flex-1 flex flex-col min-h-0 bg-gradient-to-b from-white to-slate-50/60">
+      {/* Context bar */}
+      <div className="h-12 sm:h-14 border-b border-slate-200/80 px-4 sm:px-6 flex items-center justify-between shrink-0 bg-white/70 backdrop-blur-sm">
+        <div>
+          <h2 className="font-bold text-sm sm:text-base text-slate-900 leading-tight">Ask your documents</h2>
+          <p className="hidden sm:block text-[11px] text-slate-400 font-medium">
+            {selectedDocumentIds.length > 0
+              ? `${selectedDocumentIds.length} document${selectedDocumentIds.length > 1 ? 's' : ''} in context`
+              : 'No documents selected'}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 bg-slate-100/80 border border-slate-200/60 rounded-full px-2.5 py-1">
+          <HiOutlineSparkles className="w-3.5 h-3.5 text-indigo-500" />
+          RAG v2
+        </div>
       </div>
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-8 space-y-6 sm:space-y-8 no-scrollbar">
+      {/* Messages scroll area */}
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4 sm:py-8 no-scrollbar">
         {messages.length === 0 ? (
-          <div className="max-w-2xl mx-auto text-center py-8 sm:py-16 animate-fade-in">
-            <div className="inline-flex size-12 sm:size-14 items-center justify-center rounded-2xl bg-blue-50 mb-4 sm:mb-5 border border-blue-100 shadow-sm animate-bounce">
-              <HiOutlineSparkles className="size-6 sm:size-7 text-blue-600" />
+          <div className="max-w-2xl mx-auto text-center py-6 sm:py-12 animate-fade-in">
+            <div className="inline-flex w-[52px] h-[52px] sm:w-14 sm:h-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 mb-5 shadow-glow animate-float">
+              <HiOutlineSparkles className="w-7 h-7 text-white" />
             </div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2 sm:mb-3 text-slate-900">What do you want to know?</h2>
-            <p className="text-slate-500 mb-6 sm:mb-8 text-sm sm:text-base leading-relaxed max-w-md mx-auto px-2">
+            <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mb-2 sm:mb-3 text-slate-900 text-balance">What do you want to know?</h2>
+            <p className="text-slate-500 mb-6 sm:mb-8 text-sm sm:text-base leading-relaxed max-w-md mx-auto text-pretty">
               {!hasDocuments
-                ? 'Upload a document in the sidebar to get started. Answers come with citations to the exact page.'
-                : 'Ask anything about your documents. We will find cited passages in seconds.'
-              }
+                ? 'Upload a document to get started. Every answer cites the exact page it came from.'
+                : 'Ask anything about your documents. We will find cited passages in seconds.'}
             </p>
 
-            {hasDocuments ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-lg mx-auto text-left px-2 sm:px-0">
+            {!hasDocuments ? (
+              /* Upload-first empty state */
+              <button
+                onClick={() => docInputRef.current?.click()}
+                className="group w-full max-w-md mx-auto border-2 border-dashed border-slate-300 hover:border-indigo-300 rounded-3xl p-6 sm:p-8 bg-white shadow-soft hover:shadow-lift transition-all text-left active:scale-[0.99]"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-50 to-violet-50 border border-indigo-100 grid place-items-center group-hover:scale-105 transition-transform shrink-0">
+                    <HiOutlineDocumentArrowUp className="w-6 h-6 text-indigo-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-900">Upload your first document</p>
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                      Drag & drop into the sidebar or click here — PDF, DOCX, XLSX, PPTX, CSV, images.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex items-center gap-2 flex-wrap">
+                  {['PDF', 'DOCX', 'XLSX', 'PPTX', 'CSV', 'Images'].map((t) => (
+                    <span key={t} className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[10px] font-bold text-slate-500">{t}</span>
+                  ))}
+                </div>
+              </button>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-lg mx-auto text-left px-1 sm:px-0">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
-                    onClick={() => { setInput(s); fileInputRef.current?.focus() }}
-                    className="p-3 sm:p-4 border border-slate-200 rounded-xl text-sm font-bold hover:bg-slate-50 text-left text-slate-700 transition-all shadow-sm"
+                    onClick={() => { setInput(s); focusInput() }}
+                    className="p-3.5 border border-slate-200 bg-white rounded-xl text-sm font-semibold hover:bg-slate-50 hover:border-indigo-200 hover:shadow-lift text-left text-slate-700 transition-all active:scale-[0.98]"
                   >
                     {s}
                   </button>
                 ))}
               </div>
-            ) : (
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 sm:p-6 max-w-md text-left space-y-3 sm:space-y-3.5 mx-auto shadow-sm">
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Quick Setup</p>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">1</div>
-                  <p className="text-sm text-slate-600">Click <span className="font-bold text-slate-800">Upload document</span> in sidebar</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">2</div>
-                  <p className="text-sm text-slate-600">Select the documents you want to query</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-lg bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">3</div>
-                  <p className="text-sm text-slate-600">Enter your prompt in the box below</p>
-                </div>
-              </div>
             )}
           </div>
         ) : (
-          <div className="space-y-4 sm:space-y-6 max-w-3xl mx-auto">
+          <div className="space-y-4 sm:space-y-6 max-w-3xl mx-auto pb-4">
             {messages.map((msg) => (
               <MessageBubble key={msg.id} message={msg} />
             ))}
             {isQuerying && (
-              <div className="flex gap-3 sm:gap-4 animate-pulse">
-                <div className="size-8 sm:size-9 rounded-lg bg-slate-900 shrink-0 flex items-center justify-center text-white text-xs font-bold">D</div>
-                <div className="flex items-center gap-2 text-sm font-bold text-slate-500 pt-2">
-                  <div className="w-4 h-4 border-2 border-slate-500 border-t-transparent rounded-full animate-spin" />
-                  Searching your documents…
+              <div className="flex gap-3 sm:gap-4 animate-fade-in">
+                <div className="size-8 sm:size-9 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 shrink-0 flex items-center justify-center text-white text-xs font-black shadow-glow">D</div>
+                <div className="bg-white border border-slate-200/80 shadow-soft rounded-2xl rounded-tl-md px-4 py-3.5 flex items-center gap-1.5 mt-0.5">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="w-2 h-2 rounded-full bg-indigo-500 animate-typing-dot"
+                      style={{ animationDelay: `${i * 0.18}s` }}
+                    />
+                  ))}
                 </div>
               </div>
             )}
@@ -122,53 +173,71 @@ export default function ChatWindow() {
         )}
       </div>
 
-      {/* Input Bar */}
-      <div className="p-3 sm:p-6 border-t border-slate-200 bg-white shrink-0">
+      {/* Composer */}
+      <div className="p-3 sm:p-5 pt-1 sm:pt-2 border-t border-slate-200/60 bg-white/85 backdrop-blur-md shrink-0">
         <form onSubmit={handleSend} className="relative max-w-3xl mx-auto">
           {imagePreview && (
-            <div className="absolute bottom-full mb-2 sm:mb-3 left-0 bg-slate-50 border border-slate-200 rounded-xl p-2 sm:p-2.5 flex items-center gap-2 shadow-md">
-              <img src={imagePreview} alt="Preview" className="h-12 sm:h-16 w-auto rounded object-cover border border-slate-200" />
-              <button type="button" onClick={removeImage} className="p-1 rounded-full hover:bg-slate-200 text-slate-500">
+            <div className="absolute bottom-full mb-2 left-1 bg-white border border-slate-200 rounded-xl p-2 flex items-center gap-2 shadow-lift animate-pop">
+              <img src={imagePreview} alt="Attachment preview" className="h-14 w-auto max-w-[160px] rounded-lg object-cover border border-slate-200" />
+              <button type="button" onClick={removeImage} aria-label="Remove image" className="p-1 rounded-full hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors">
                 <HiXMark className="w-4 h-4" />
               </button>
             </div>
           )}
 
           {showDeselectedWarning && (
-            <div className="absolute bottom-full mb-2 sm:mb-3 left-0 right-0 p-2.5 sm:p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm font-bold shadow-md">
-              ⚠️ Please select a document in the sidebar checkbox to query.
+            <div className="absolute bottom-full mb-2 left-0 right-0 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm font-bold shadow-lift animate-pop">
+              ⚠️ Select at least one document checkbox in the sidebar to query.
             </div>
           )}
 
-          <div className="flex items-center">
-            <input
+          {/* Pill composer */}
+          <div className={`relative flex items-end gap-1.5 border bg-white rounded-2xl pl-3 pr-2 py-1.5 shadow-lift transition-all duration-150 ${
+            showDeselectedWarning ? 'opacity-60 border-amber-300' : 'border-slate-200 focus-within:border-indigo-400 focus-within:ring-4 focus-within:ring-indigo-500/10'
+          }`}>
+            <textarea
+              ref={textareaRef}
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={showDeselectedWarning ? 'Please select a document first...' : 'Ask your documents anything…'}
+              onKeyDown={handleKeyDown}
+              placeholder={showDeselectedWarning ? 'Select a document first…' : 'Ask anything about your documents…'}
               disabled={showDeselectedWarning}
-              className="w-full border border-slate-200 bg-white rounded-xl py-3 sm:py-4 pl-4 sm:pl-5 pr-24 sm:pr-28 text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 placeholder:text-slate-400 text-slate-900 shadow-sm"
+              className="flex-1 resize-none bg-transparent py-2.5 text-sm sm:text-[15px] leading-relaxed focus:outline-none placeholder:text-slate-400 disabled:cursor-not-allowed text-slate-900 max-h-[140px] no-scrollbar"
             />
-            
-            <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+
+            <div className="flex items-center gap-1 pb-1 shrink-0">
+              <input type="file" multiple accept=".pdf,.docx,.xlsx,.xls,.csv,.pptx,.txt,.md,.json,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff" className="hidden" ref={docInputRef} onChange={handleDocSelect} />
               <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageSelect} />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-50 transition-all"
-                title="Attach Image"
+                aria-label="Attach image"
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all active:scale-95"
+                title="Attach image"
               >
                 <HiOutlinePhoto className="w-5 h-5" />
               </button>
-              
+
               <button
                 type="submit"
                 disabled={(!input.trim() && !imageFile) || isQuerying || showDeselectedWarning}
-                className="size-9 sm:size-10 rounded-lg bg-slate-900 text-white grid place-items-center disabled:opacity-40 hover:opacity-90 transition-opacity"
+                aria-label="Send message"
+                className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white grid place-items-center shadow-glow disabled:from-slate-200 disabled:to-slate-200 disabled:text-slate-400 disabled:shadow-none hover:brightness-110 active:scale-95 transition-all"
               >
-                <HiOutlinePaperAirplane className="size-4 rotate-45" />
+                {isQuerying ? (
+                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <HiOutlinePaperAirplane className="w-4 h-4 -rotate-45 translate-x-[1px]" />
+                )}
               </button>
             </div>
           </div>
+
+          <p className="hidden sm:block text-center text-[11px] text-slate-400 font-medium mt-2">
+            <kbd className="font-sans font-semibold text-slate-500">Enter</kbd> to send ·{' '}
+            <kbd className="font-sans font-semibold text-slate-500">Shift + Enter</kbd> for a new line
+          </p>
         </form>
       </div>
     </div>

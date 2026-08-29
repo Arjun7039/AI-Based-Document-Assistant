@@ -157,6 +157,7 @@ def run_ingestion_in_background(doc_id: str, filename: str, ext: str, content: b
         error_details = traceback.format_exc()
         logger.error(f"Background Ingestion FAILED for {doc_id}: {e}\n{error_details}")
         try:
+            db.rollback()
             document = db.query(Document).filter(Document.id == doc_id).first()
             if document:
                 document.status = "failed"

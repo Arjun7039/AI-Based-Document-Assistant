@@ -4,6 +4,7 @@ import os
 import json
 import math
 import uuid
+import threading
 from config import settings
 from utils.logger import logger
 
@@ -110,13 +111,18 @@ class LocalStore(VectorStore):
         self.store_dir = settings.CHROMA_PERSIST_DIR
         os.makedirs(self.store_dir, exist_ok=True)
         self.store_file = os.path.join(self.store_dir, "vectors.json")
+        self._lock = threading.Lock()
         self.data = self._load()
         logger.info(f"Local vector store: {self.store_file} ({len(self.data)} vectors)")
 
     def _load(self) -> list[dict]:
         if os.path.exists(self.store_file):
-            with open(self.store_file, "r") as f:
-                return json.load(f)
+            try:
+                with open(self.store_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Failed to load vector store file, starting fresh: {e}")
+                return []
         return []
 
     def _save(self):
@@ -124,34 +130,55 @@ class LocalStore(VectorStore):
             json.dump(self.data, f)
 
     def add(self, chunks: list[dict], embeddings: list[list[float]], document_id: str):
-        for chunk, embedding in zip(chunks, embeddings):
-            self.data.append({
-                "id": f"{document_id}_{chunk['chunk_index']}",
-                "embedding": embedding,
-                "metadata": {
-                    "text": chunk["text"],
-                    "document_id": document_id,
-                    "filename": chunk["filename"],
-                    "page_number": chunk["page_number"],
-                    "chunk_index": chunk["chunk_index"],
-                    "section": chunk.get("section", ""),
-                },
-            })
-        self._save()
+        with self._lock:
+            for chunk, embedding in zip(chunks, embeddings):
+                self.data.append({
+                    "id": f"{document_id}_{chunk['chunk_index']}",
+                    "embedding": embedding,
+                    "metadata": {
+                        "text": chunk["text"],
+                        "document_id": document_id,
+                        "filename": chunk["filename"],
+                        "page_number": chunk["page_number"],
+                        "chunk_index": chunk["chunk_index"],
+                        "section": chunk.get("section", ""),
+                    },
+                })
+            self._save()
         logger.info(f"Stored {len(chunks)} vectors locally for doc {document_id}")
 
     def query(self, embedding: list[float], top_k: int = 5, document_ids: list[str] | None = None):
-        scored = []
-        for item in self.data:
-            # Filter by document_ids if specified
-            if document_ids and item["metadata"]["document_id"] not in document_ids:
-                continue
+        if not self.data:
+            return []
 
-            score = self._cosine_similarity(embedding, item["embedding"])
-            scored.append((score, item))
+        try:
+            import numpy as np
+            use_numpy = True
+        except ImportError:
+            use_numpy = False
 
-        # Sort by score descending
-        scored.sort(key=lambda x: x[0], reverse=True)
+        # Filter candidates first, then compute similarities in one vectorized
+        # pass — orders of magnitude faster than per-item Python cosine.
+        candidates = [
+            item for item in self.data
+            if not document_ids or item["metadata"]["document_id"] in document_ids
+        ]
+        if not candidates:
+            return []
+
+        if use_numpy:
+            matrix = np.asarray([item["embedding"] for item in candidates], dtype=np.float32)
+            query_vec = np.asarray(embedding, dtype=np.float32)
+            denom = np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vec)
+            denom[denom == 0] = 1e-9
+            scores = (matrix @ query_vec) / denom
+            scored = sorted(zip(scores.tolist(), candidates), key=lambda x: x[0], reverse=True)
+        else:
+            scored = sorted(
+                ((self._cosine_similarity(embedding, item["embedding"]), item) for item in candidates),
+                key=lambda x: x[0],
+                reverse=True,
+            )
 
         results = []
         for score, item in scored[:top_k]:
@@ -169,9 +196,10 @@ class LocalStore(VectorStore):
         return results
 
     def delete(self, document_id: str):
-        before = len(self.data)
-        self.data = [v for v in self.data if v["metadata"]["document_id"] != document_id]
-        self._save()
+        with self._lock:
+            before = len(self.data)
+            self.data = [v for v in self.data if v["metadata"]["document_id"] != document_id]
+            self._save()
         logger.info(f"Deleted {before - len(self.data)} vectors for doc {document_id}")
 
     @staticmethod

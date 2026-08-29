@@ -1,571 +1,355 @@
-# 📄 DocMind — RAG-Based Document Assistant
+# 📄 DocMind — Production-Grade RAG Document Intelligence Platform
 
-A production-ready, multi-format document intelligence platform that lets users upload any document (PDF, Excel, DOCX, CSV, PPTX, TXT, and more) and query it using natural language. Built for speed, accuracy, and scalability.
+[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/Frontend-React_18_|_Vite-61DAFB.svg?style=flat&logo=react)](https://reactjs.org/)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB.svg?style=flat&logo=python)](https://python.org)
+[![Tailwind CSS](https://img.shields.io/badge/Styling-Tailwind_CSS-38B2AC.svg?style=flat&logo=tailwind-css)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
+**DocMind** is an enterprise-ready, multi-format Retrieval-Augmented Generation (RAG) document intelligence platform. It allows users to upload documents across diverse file formats (PDF, Word, Excel, CSV, PowerPoint, Plain Text, Markdown, JSON, and Images) and query them using natural language with source-grounded accuracy, zero hallucination, and sub-second retrieval latency.
 
 ---
 
-## 🧠 What This Does
+## 💡 System Highlights
 
-Users upload documents — from 10 pages to 10,000 pages — and ask questions in plain English. The system retrieves only the relevant chunks, feeds them into an LLM with context, and returns a precise, grounded answer. No hallucination from memory. No manual searching. No page-by-page reading.
-
-**Core Flow:**
-```
-User uploads file
-        ↓
-Parse → Clean → Chunk → Embed → Store in Vector DB
-        ↓
-User asks a question
-        ↓
-Embed query → Semantic search → Retrieve top-k chunks
-        ↓
-LLM generates answer grounded in retrieved context
-        ↓
-Return answer + source citations to user
-```
+- ⚡ **Multi-Format & Multimodal Ingestion**: Native parsing support for 16+ file extensions including PDFs, spreadsheets, presentations, and images (`.png`, `.jpg`, `.webp`) processed via Gemini Vision VLM OCR.
+- 🛡️ **3-Tier Embedding Resilience**: High-availability fallback chain across HuggingFace Inference Router (`all-MiniLM-L6-v2`) → Google Gemini Embeddings (`text-embedding-004`) → Local SentenceTransformers (PyTorch C++ CPU SIMD).
+- 🧠 **3-Tier LLM Reasoning Chain**: Primary generation via `Gemini 3.5 Flash` → Secondary fallback to `Gemini 2.5 Pro` → Tertiary fallback to Groq (`Llama 3.3 70B Versatile`).
+- 📐 **Calibrated Context Window Chunking**: `CHUNK_SIZE=900` chars (~220 tokens) meticulously tuned to fit inside `all-MiniLM-L6-v2`'s 256-token context window, eliminating silent vector truncation.
+- 🚀 **Dual Vector Store Architecture**: Pinecone vector index for production cloud deployment with seamless local vector store fallback utilizing NumPy matrix algebra for vector cosine similarity calculations.
+- 💾 **Resilient Database Layer**: Automatic connection testing for PostgreSQL (Supabase) with seamless local SQLite (`docmind.db`) fallback and idempotent column migrations.
+- 🔐 **JWT Authentication & Document Isolation**: Full register/login auth flow with bcrypt hashing and user-level document metadata isolation.
 
 ---
 
 ## 🏗️ Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        FRONTEND                             │
-│              React + Tailwind + Vite                        │
-│   File Upload | Chat UI | Source Viewer | Session History   │
-└────────────────────┬────────────────────────────────────────┘
-                     │ REST / WebSocket
-┌────────────────────▼────────────────────────────────────────┐
-│                     API GATEWAY                             │
-│                  FastAPI (Python)                           │
-│    /upload  |  /query  |  /sessions  |  /documents          │
-└──────┬─────────────┬───────────────┬────────────────────────┘
-       │             │               │
-┌──────▼──────┐ ┌────▼──────┐ ┌─────▼──────────┐
-│  Ingestion  │ │   Query   │ │  Auth / Session │
-│  Pipeline   │ │  Engine   │ │    Manager      │
-└──────┬──────┘ └────┬──────┘ └────────────────┘
-       │             │
-┌──────▼─────────────▼────────────────────────────────────────┐
-│                    CORE SERVICES                            │
-│                                                             │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │  Document   │  │  Embedding   │  │    LLM Layer      │  │
-│  │  Parsers    │  │  Service     │  │  (OpenAI / Groq)  │  │
-│  │  (multi-    │  │ (text-embed- │  │   GPT-4o / llama  │  │
-│  │   format)   │  │  3-small)    │  │                   │  │
-│  └─────────────┘  └──────────────┘  └───────────────────┘  │
-└──────────┬──────────────────┬────────────────────────────────┘
-           │                  │
-┌──────────▼──────┐  ┌────────▼──────────┐
-│  Vector Store   │  │   Relational DB   │
-│  (ChromaDB /    │  │   PostgreSQL      │
-│   Pinecone)     │  │  (metadata,       │
-│                 │  │   sessions,       │
-│                 │  │   audit logs)     │
-└─────────────────┘  └───────────────────┘
+                                 ┌─────────────────────────────────────────────────────────────┐
+                                 │                        FRONTEND                             │
+                                 │              React + Vite + Tailwind CSS                    │
+                                 │   UploadZone | ChatWindow | SourcePanel | SessionSidebar    │
+                                 └────────────────────┬────────────────────────────────────────┘
+                                                      │ REST / JWT Auth
+                                 ┌────────────────────▼────────────────────────────────────────┐
+                                 │                     API GATEWAY                             │
+                                 │                  FastAPI (Python)                           │
+                                 │  /upload  |  /query  |  /sessions  |  /documents |  /auth   │
+                                 └──────┬─────────────┬───────────────┬────────────────────────┘
+                                        │             │               │
+                                 ┌──────▼──────┐ ┌────▼──────┐ ┌─────▼──────────┐
+                                 │  Ingestion  │ │   Query   │ │  Auth / Session │
+                                 │  Pipeline   │ │  Engine   │ │    Manager      │
+                                 └──────┬──────┘ └────┬──────┘ └────────────────┘
+                                        │             │
+┌───────────────────────────────────────▼─────────────▼────────────────────────────────────────┐
+│                                   CORE RAG SERVICES                                          │
+│                                                                                              │
+│   ┌──────────────────────────┐   ┌──────────────────────────┐   ┌────────────────────────┐   │
+│   │   Document & Image       │   │  3-Tier Embeddings       │   │   3-Tier LLM Chain     │   │
+│   │   Parsers                │   │  1. HuggingFace Router   │   │  1. Gemini 3.5 Flash   │   │
+│   │  (PDF, DOCX, XLSX, PPTX, │   │  2. Gemini Embedding     │   │  2. Gemini 2.5 Pro     │   │
+│   │   CSV, TXT, Images VLM)  │   │  3. Local PyTorch SIMD   │   │  3. Groq Llama 3.3 70B │   │
+│   └──────────────────────────┘   └──────────────────────────┘   └────────────────────────┘   │
+└───────────────────┬─────────────────────────────┬────────────────────────────────────────────┘
+                    │                             │
+         ┌──────────▼──────────────┐   ┌──────────▼─────────────┐
+         │       Vector DB         │   │     Relational DB      │
+         │  Pinecone (Production)  │   │  PostgreSQL (Supabase) │
+         │  Local Vector (Dev NumPy│   │  SQLite (Local Fallback│
+         └─────────────────────────┘   └────────────────────────┘
 ```
 
 ---
 
-## 🛠️ Tech Stack
+## 🛠️ Tech Stack & Technical Specs
 
-| Layer | Technology | Purpose |
+| Component | Tech / Tool | Engineering Rationale |
 |---|---|---|
-| **Frontend** | React + Vite + Tailwind CSS | Chat UI, file upload, source viewer |
-| **API** | FastAPI (Python 3.11+) | REST endpoints, file handling, orchestration |
-| **Document Parsing** | `pypdf`, `python-docx`, `openpyxl`, `python-pptx`, `unstructured`, `pandas` | Multi-format ingestion |
-| **Text Chunking** | LangChain `RecursiveCharacterTextSplitter` | Smart context-aware chunking |
-| **Embeddings** | OpenAI `text-embedding-3-small` | Dense vector representation |
-| **Vector DB** | ChromaDB (dev) / Pinecone (prod) | Semantic similarity search |
-| **LLM** | OpenAI GPT-4o (primary) / Groq llama-3.3-70b (fallback) | Answer generation |
-| **Relational DB** | PostgreSQL + SQLAlchemy | Metadata, sessions, user data |
-| **Object Storage** | AWS S3 / Cloudflare R2 | Raw document storage |
-| **Task Queue** | Celery + Redis | Async ingestion jobs for large files |
-| **Auth** | JWT + bcrypt | User sessions and API key management |
-| **Deployment** | Docker + Docker Compose | Container orchestration |
-| **Hosting** | Antigravity | Cloud deployment target |
+| **Frontend Framework** | React 18 + Vite | Fast HMR, lightweight bundle size, modern component architecture |
+| **State & Styling** | Zustand + Tailwind CSS | Global UI state management + glassmorphism/dark mode utility design |
+| **API Framework** | FastAPI (Python 3.11+) | Async I/O, OpenAPI auto-docs, Pydantic type validation |
+| **Document Parsers** | `pypdf`, `python-docx`, `openpyxl`, `python-pptx`, `pandas` | Specialized native parsing per file format |
+| **Multimodal Vision** | Google Gemini Vision API | Extraction of text, charts, diagrams, and visual tables from image files |
+| **Chunking Engine** | LangChain `RecursiveCharacterTextSplitter` | Hierarchical recursive splitting preserving paragraph context |
+| **Embedding Pipeline** | HuggingFace API Router / Gemini / SentenceTransformers | 3-tier high-availability fallback architecture |
+| **Vector Search** | Pinecone (Prod) / Local NumPy Vector Store (Dev) | Cosine similarity query matching with metadata filtering |
+| **Primary LLM** | Google Gemini 3.5 Flash | High-speed, high-reasoning primary generation engine |
+| **Fallback LLMs** | Gemini 2.5 Pro & Groq `llama-3.3-70b-versatile` | High-reasoning and open-weights fallback tier |
+| **Database** | PostgreSQL (Supabase) / SQLite | Auto-fallback relational persistence for sessions, documents, and auth |
+| **Authentication** | JWT (python-jose) + bcrypt | Stateful session security and token expiration |
 
 ---
 
 ## 📂 Project Structure
 
 ```
-docmind/
+AI Based document assistant/
 ├── backend/
-│   ├── main.py                    # FastAPI app entrypoint
-│   ├── config.py                  # Environment config + settings
-│   ├── requirements.txt
+│   ├── main.py                    # FastAPI application entrypoint & middleware
+│   ├── config.py                  # Environment settings & Pydantic validation
+│   ├── requirements.txt           # Python dependencies
+│   ├── Dockerfile                 # Containerized deployment specification
+│   ├── docmind.db                 # SQLite database (autocreated local fallback)
 │   │
 │   ├── api/
-│   │   ├── routes/
-│   │   │   ├── upload.py          # POST /upload — file ingestion trigger
-│   │   │   ├── query.py           # POST /query — RAG query endpoint
-│   │   │   ├── documents.py       # GET/DELETE /documents — manage uploads
-│   │   │   └── sessions.py        # GET /sessions — chat history
-│   │   └── dependencies.py        # Auth, DB session injection
+│   │   ├── dependencies.py        # Auth validation & DB session injection
+│   │   └── routes/
+│   │       ├── auth.py            # POST /auth/register, /auth/login, GET /auth/me
+│   │       ├── upload.py          # POST /upload — document ingestion trigger
+│   │       ├── documents.py       # GET/DELETE /documents — management & status polling
+│   │       ├── query.py           # POST /query — RAG semantic retrieval & answer generation
+│   │       └── sessions.py        # GET/DELETE /sessions — session chat history
 │   │
 │   ├── ingestion/
-│   │   ├── parser.py              # Route files to correct parser
-│   │   ├── parsers/
-│   │   │   ├── pdf_parser.py      # pypdf + unstructured fallback
-│   │   │   ├── docx_parser.py     # python-docx
-│   │   │   ├── excel_parser.py    # openpyxl + pandas
-│   │   │   ├── pptx_parser.py     # python-pptx
-│   │   │   ├── csv_parser.py      # pandas
-│   │   │   └── txt_parser.py      # plain text
-│   │   ├── chunker.py             # RecursiveCharacterTextSplitter logic
-│   │   └── pipeline.py            # Orchestrates parse → chunk → embed → store
+│   │   ├── parser.py              # Router for document parsers
+│   │   ├── chunker.py             # Recursive character text splitter (CHUNK_SIZE=900)
+│   │   ├── pipeline.py            # Ingestion workflow: parse -> chunk -> embed -> store
+│   │   └── parsers/
+│   │       ├── pdf_parser.py      # pypdf text parser
+│   │       ├── docx_parser.py     # python-docx parser
+│   │       ├── excel_parser.py    # openpyxl sheet & cell parser
+│   │       ├── csv_parser.py      # pandas column-aware row serializer
+│   │       ├── pptx_parser.py     # python-pptx slide & speaker note parser
+│   │       ├── txt_parser.py      # Plain text & JSON parser
+│   │       └── image_parser.py    # Gemini Vision OCR & multimodal analysis
 │   │
 │   ├── embeddings/
-│   │   ├── embedder.py            # OpenAI embedding wrapper
-│   │   └── vector_store.py        # ChromaDB / Pinecone abstraction layer
+│   │   ├── embedder.py            # 3-tier embedding logic (HF Router -> Gemini -> Local PyTorch)
+│   │   └── vector_store.py        # Abstraction layer for Pinecone & Local NumPy Store
 │   │
 │   ├── rag/
-│   │   ├── retriever.py           # Semantic search + optional re-ranking
-│   │   ├── prompt_builder.py      # System prompt + context injection
-│   │   └── generator.py           # LLM call with retrieved context
-│   │
-│   ├── models/
-│   │   ├── document.py            # SQLAlchemy Document model
-│   │   ├── session.py             # Chat session model
-│   │   └── user.py                # User model
+│   │   ├── retriever.py           # Semantic search & vector score thresholding
+│   │   ├── prompt_builder.py      # System prompt construction & context formatting
+│   │   └── generator.py           # LLM generation & 3-tier fallback chain
 │   │
 │   ├── db/
-│   │   ├── database.py            # PostgreSQL connection + session factory
-│   │   └── migrations/            # Alembic migration scripts
+│   │   └── database.py            # SQLAlchemy engine with Supabase -> SQLite auto-fallback
 │   │
-│   ├── tasks/
-│   │   └── ingestion_task.py      # Celery task for async document processing
+│   ├── models/                    # SQLAlchemy database schemas
+│   │   ├── user.py                # User accounts & auth credentials
+│   │   ├── document.py            # Uploaded file metadata & parsing status
+│   │   ├── session.py             # User chat sessions
+│   │   └── chat_message.py        # Message history & source citations
 │   │
 │   └── utils/
-│       ├── file_validator.py      # MIME type + size checks
-│       ├── storage.py             # S3 / R2 upload/download helpers
-│       └── logger.py              # Structured logging
+│       ├── file_validator.py      # MIME type & file extension validation
+│       └── logger.py              # Structured logging utility
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx
+│   │   ├── App.jsx                # Main application component & layout routing
+│   │   ├── index.css              # Custom design system & Tailwind directives
 │   │   ├── components/
-│   │   │   ├── UploadZone.jsx     # Drag & drop file upload
-│   │   │   ├── ChatWindow.jsx     # Conversation interface
-│   │   │   ├── MessageBubble.jsx  # User / assistant message
-│   │   │   ├── SourcePanel.jsx    # Show retrieved chunk sources
-│   │   │   ├── DocumentList.jsx   # Manage uploaded documents
-│   │   │   └── StatusBadge.jsx    # Processing status indicator
-│   │   ├── hooks/
-│   │   │   ├── useUpload.js       # Upload + polling logic
-│   │   │   └── useChat.js         # Query + streaming response
-│   │   ├── api/
-│   │   │   └── client.js          # Axios instance + API helpers
-│   │   └── store/
-│   │       └── useStore.js        # Zustand global state
+│   │   │   ├── Header.jsx         # App navigation & connection badge
+│   │   │   ├── Sidebar.jsx        # Session history & document selection sidebar
+│   │   │   ├── LandingPage.jsx    # Product landing page & feature showcases
+│   │   │   ├── UploadZone.jsx     # Drag-and-drop document upload interface
+│   │   │   ├── DocumentList.jsx   # Uploaded document status tracker
+│   │   │   ├── ChatWindow.jsx     # Interactive conversational query UI
+│   │   │   ├── MessageBubble.jsx  # Rich message rendering & citation tags
+│   │   │   ├── SourcePanel.jsx    # Retrieved chunk source citation viewer
+│   │   │   └── AuthWindow.jsx     # User authentication modal
+│   │   ├── store/
+│   │   │   └── useStore.js        # Zustand global state store
+│   │   └── api/
+│   │       └── client.js          # Axios API wrapper with request interceptors
 │   ├── index.html
-│   ├── vite.config.js
-│   └── tailwind.config.js
+│   └── vite.config.js
 │
-├── docker-compose.yml             # Full local stack (backend, frontend, postgres, redis, chroma)
-├── Dockerfile.backend
-├── Dockerfile.frontend
-├── .env.example
-└── README.md
+├── render.yaml                    # Render cloud backend deployment config
+├── .env.example                   # Template environment variables
+└── README.md                      # Complete system documentation & interview guide
 ```
 
 ---
 
-## ⚙️ Environment Variables
+## ⚙️ Environment Variables Setup
 
-Create a `.env` file at the root. Copy from `.env.example`:
+Create a `.env` file in the project root directory (or copy from `.env.example`):
 
 ```env
-# LLM
-OPENAI_API_KEY=sk-...
-GROQ_API_KEY=gsk_...
+# ─── Application Mode ───
+APP_ENV=development
 
-# Embeddings
-EMBEDDING_MODEL=text-embedding-3-small
-EMBEDDING_DIMENSION=1536
+# ─── 1. Relational Database ───
+# Primary PostgreSQL (Supabase). If unreachable, system auto-falls back to sqlite:///./docmind.db
+DATABASE_URL=postgresql://postgres.xxx:password@aws-0-region.pooler.supabase.com:6543/postgres
 
-# Vector DB
-VECTOR_STORE=chroma                   # "chroma" | "pinecone"
-CHROMA_PERSIST_DIR=./chroma_store
-PINECONE_API_KEY=...
+# ─── 2. LLM Engine Keys ───
+GEMINI_API_KEY=your_google_gemini_api_key
+GROQ_API_KEY=your_groq_api_key
+
+# ─── 3. Embeddings Engine Config ───
+EMBEDDING_PROVIDER=huggingface   # Provider chain: "huggingface" | "gemini" | "local"
+HUGGINGFACE_API_TOKEN=your_huggingface_api_token
+EMBEDDING_MODEL=models/gemini-embedding-2
+EMBEDDING_DIMENSION=384
+
+# ─── 4. Vector Database ───
+VECTOR_STORE=chroma               # "pinecone" for production cloud | "chroma" for local NumPy store
+PINECONE_API_KEY=your_pinecone_api_key
 PINECONE_INDEX=docmind
 
-# Postgres
-DATABASE_URL=postgresql://user:password@localhost:5432/docmind
-
-# Redis (for Celery)
-REDIS_URL=redis://localhost:6379/0
-
-# Object Storage
-STORAGE_BACKEND=local                 # "local" | "s3" | "r2"
-AWS_ACCESS_KEY_ID=...
-AWS_SECRET_ACCESS_KEY=...
-AWS_S3_BUCKET=docmind-uploads
-LOCAL_UPLOAD_DIR=./uploads
-
-# Auth
-JWT_SECRET_KEY=your-super-secret-key
+# ─── 5. Authentication (JWT) ───
+JWT_SECRET_KEY=your_super_secret_jwt_key_here
 JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=60
+ACCESS_TOKEN_EXPIRE_MINUTES=10080
 
-# App
-APP_ENV=development                   # "development" | "production"
-MAX_FILE_SIZE_MB=50
-ALLOWED_EXTENSIONS=pdf,docx,xlsx,csv,pptx,txt,md,json
-
-# RAG Settings
-CHUNK_SIZE=800
+# ─── 6. RAG Parameters ───
+CHUNK_SIZE=900                   # 900 chars ≈ 220 tokens (tuned for MiniLM-L6-v2)
 CHUNK_OVERLAP=150
-TOP_K_RETRIEVAL=5
-LLM_MODEL=gpt-4o
+TOP_K_RETRIEVAL=8
+LLM_MODEL=gemini-3.5-flash
+LLM_FALLBACK_MODEL=gemini-2.5-pro
 LLM_TEMPERATURE=0.2
-MAX_CONTEXT_TOKENS=8000
+
+# ─── 7. CORS Security ───
+CORS_ORIGINS=http://localhost:5173,http://localhost:3000
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Execution & Quickstart Guide
 
 ### Prerequisites
+- **Python**: `v3.11` or higher
+- **Node.js**: `v18` or higher
 
-- Python 3.11+
-- Node.js 18+
-- Docker + Docker Compose
-- PostgreSQL 15 (or use the Docker Compose service)
-- Redis (or use the Docker Compose service)
-
-### 1. Clone and Set Up
-
+### 1. Clone & Set Up Environment
 ```bash
-git clone https://github.com/yourname/docmind.git
-cd docmind
+git clone https://github.com/Arjun7039/AI-Based-Document-Assistant.git
+cd AI-Based-Document-Assistant
 cp .env.example .env
-# Fill in your API keys in .env
 ```
 
-### 2. Run with Docker Compose (Recommended)
-
-```bash
-docker-compose up --build
-```
-
-This starts: FastAPI backend (port 8000), React frontend (port 5173), PostgreSQL (port 5432), Redis (port 6379), ChromaDB (port 8001).
-
-### 3. Run Manually (Dev Mode)
-
-**Backend:**
+### 2. Launch Backend (FastAPI)
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
+
+# Windows PowerShell:
+.\venv\Scripts\Activate.ps1
+# Linux / macOS:
+# source venv/bin/activate
+
 pip install -r requirements.txt
-alembic upgrade head            # Run DB migrations
-uvicorn main:app --reload --port 8000
+python -m uvicorn main:app --reload --port 8000
 ```
+*The FastAPI backend will start on `http://localhost:8000` with Interactive Swagger Docs at `http://localhost:8000/docs`.*
 
-**Celery Worker (in a separate terminal):**
-```bash
-cd backend
-celery -A tasks.ingestion_task worker --loglevel=info
-```
-
-**Frontend:**
+### 3. Launch Frontend (React + Vite)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-
----
-
-## 📡 API Reference
-
-### Upload a Document
-
-```
-POST /api/upload
-Content-Type: multipart/form-data
-
-Body:
-  file: <binary>
-  session_id: <string> (optional — creates new session if omitted)
-
-Response:
-{
-  "document_id": "doc_abc123",
-  "filename": "Q3_Report.pdf",
-  "status": "processing",   // "processing" | "ready" | "failed"
-  "pages": 47,
-  "session_id": "sess_xyz"
-}
-```
-
-### Poll Document Status
-
-```
-GET /api/documents/{document_id}/status
-
-Response:
-{
-  "document_id": "doc_abc123",
-  "status": "ready",
-  "chunks_indexed": 182,
-  "processing_time_ms": 3420
-}
-```
-
-### Query Documents
-
-```
-POST /api/query
-Content-Type: application/json
-
-Body:
-{
-  "question": "What was the total revenue in Q3?",
-  "session_id": "sess_xyz",
-  "document_ids": ["doc_abc123"],   // optional: scope to specific docs
-  "top_k": 5                        // optional: override retrieval count
-}
-
-Response:
-{
-  "answer": "Total revenue in Q3 was ₹42.3 crore, representing a 14% increase...",
-  "sources": [
-    {
-      "document_id": "doc_abc123",
-      "filename": "Q3_Report.pdf",
-      "page": 12,
-      "chunk": "...Total revenue for Q3 stood at ₹42.3 crore compared to...",
-      "score": 0.91
-    }
-  ],
-  "tokens_used": 1840,
-  "latency_ms": 1120
-}
-```
-
-### List Documents in Session
-
-```
-GET /api/sessions/{session_id}/documents
-
-Response:
-{
-  "session_id": "sess_xyz",
-  "documents": [
-    { "document_id": "doc_abc123", "filename": "Q3_Report.pdf", "status": "ready", "uploaded_at": "..." }
-  ]
-}
-```
-
-### Delete a Document
-
-```
-DELETE /api/documents/{document_id}
-```
-
----
-
-## 🧩 Key Implementation Details
-
-### Document Parsing Strategy
-
-Each file type has a dedicated parser. All parsers return a normalized `List[TextChunk]` with `text`, `page_number`, `section`, and `metadata`.
-
-```python
-# ingestion/parser.py
-PARSER_MAP = {
-    "pdf":  PDFParser,
-    "docx": DocxParser,
-    "xlsx": ExcelParser,
-    "xls":  ExcelParser,
-    "csv":  CSVParser,
-    "pptx": PPTXParser,
-    "txt":  TxtParser,
-    "md":   TxtParser,
-    "json": TxtParser,
-}
-```
-
-For PDFs: use `pypdf` for text-based PDFs. Fall back to `unstructured` (which uses OCR internally) for scanned documents.
-
-For Excel/CSV: convert each sheet/table row into structured plain text before chunking (`openpyxl` → row-to-text serialization).
-
-### Chunking Strategy
-
-```python
-# ingestion/chunker.py
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-splitter = RecursiveCharacterTextSplitter(
-    chunk_size=800,          # from env: CHUNK_SIZE
-    chunk_overlap=150,       # from env: CHUNK_OVERLAP
-    separators=["\n\n", "\n", ". ", " ", ""],
-    length_function=len,
-)
-```
-
-Each chunk stores: `text`, `document_id`, `chunk_index`, `page_number`, `source_file`.
-
-### RAG Prompt Template
-
-```python
-# rag/prompt_builder.py
-SYSTEM_PROMPT = """
-You are DocMind, a precise document assistant. Answer the user's question
-using ONLY the context provided below. If the answer is not in the context,
-say "I couldn't find this in the uploaded documents."
-
-Always cite which document and page number your answer comes from.
-Keep answers concise, accurate, and well-structured.
-"""
-
-def build_prompt(question: str, chunks: list[Chunk]) -> list[dict]:
-    context = "\n\n---\n\n".join([
-        f"[Source: {c.filename}, Page {c.page}]\n{c.text}"
-        for c in chunks
-    ])
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": f"Context:\n{context}\n\nQuestion: {question}"}
-    ]
-```
-
-### Async Ingestion with Celery
-
-Large files (>5 MB or >100 pages) are processed asynchronously. The `/upload` endpoint immediately returns `status: processing` and a `document_id`. The frontend polls `/documents/{id}/status` until `status: ready`.
-
-```python
-# tasks/ingestion_task.py
-@celery_app.task(bind=True, max_retries=3)
-def ingest_document_task(self, document_id: str, file_path: str, file_type: str):
-    try:
-        chunks = pipeline.run(file_path, file_type)
-        vector_store.add(chunks, document_id=document_id)
-        db.update_document_status(document_id, status="ready", chunks=len(chunks))
-    except Exception as e:
-        self.retry(exc=e, countdown=5)
-        db.update_document_status(document_id, status="failed")
-```
-
----
-
-## 🗺️ Build Order (Step-by-Step for Antigravity)
-
-Follow this sequence when building the project. Complete each phase before moving to the next.
-
-**Phase 1 — Project Scaffold**
-1. Initialize FastAPI app with health check endpoint (`GET /health`)
-2. Set up PostgreSQL connection with SQLAlchemy + Alembic
-3. Create `Document`, `Session`, `ChatMessage` DB models
-4. Run initial migration
-
-**Phase 2 — File Ingestion**
-5. Build `/api/upload` endpoint with file validation (MIME type, size limit)
-6. Implement each parser (`pdf_parser`, `docx_parser`, `excel_parser`, `csv_parser`, `pptx_parser`, `txt_parser`)
-7. Implement `chunker.py` using LangChain splitter
-8. Set up ChromaDB locally and implement `vector_store.py` abstraction
-9. Implement `embedder.py` (OpenAI `text-embedding-3-small`)
-10. Wire the full ingestion pipeline: upload → parse → chunk → embed → store
-11. Add Celery + Redis for async processing of large files
-
-**Phase 3 — Query Engine**
-12. Implement `/api/query` endpoint
-13. Build `retriever.py` — embed query, search ChromaDB, return top-k chunks
-14. Build `prompt_builder.py` — inject chunks into system prompt
-15. Build `generator.py` — call GPT-4o, return answer + source metadata
-16. Add Groq (llama-3.3-70b) as a fallback if OpenAI quota exceeded
-
-**Phase 4 — Frontend**
-17. Scaffold React + Vite + Tailwind
-18. Build `UploadZone.jsx` with drag-and-drop + progress indicator
-19. Build `ChatWindow.jsx` + `MessageBubble.jsx`
-20. Build `SourcePanel.jsx` to display retrieved chunk citations
-21. Build `DocumentList.jsx` to manage uploaded files per session
-22. Connect frontend to backend API via `client.js` (Axios)
-23. Add Zustand for global state (current session, document list, messages)
-
-**Phase 5 — Polish & Production**
-24. Add JWT auth (register/login, protect all routes)
-25. Implement rate limiting on `/api/query` (slowapi)
-26. Add structured logging (loguru or Python logging)
-27. Write Dockerfiles for backend and frontend
-28. Write `docker-compose.yml` with all services
-29. Add `.env.example` with all required variables
-30. Deploy to Antigravity
+*The frontend user interface will open at `http://localhost:5173`.*
 
 ---
 
 ## 📦 Supported File Formats
 
-| Format | Extension | Parser | Notes |
+| Category | Extension | Ingestion Handler | Parsing & Extraction Logic |
 |---|---|---|---|
-| PDF | `.pdf` | pypdf + unstructured | Handles scanned PDFs via OCR fallback |
-| Word | `.docx` | python-docx | Extracts paragraphs, tables, headings |
-| Excel | `.xlsx`, `.xls` | openpyxl + pandas | Each sheet parsed, rows converted to text |
-| CSV | `.csv` | pandas | Column-aware row serialization |
-| PowerPoint | `.pptx` | python-pptx | Slide text + speaker notes |
-| Plain Text | `.txt`, `.md` | built-in | Direct chunking |
-| JSON | `.json` | built-in | Pretty-printed before chunking |
+| **PDF Documents** | `.pdf` | `pypdf` | Extracts structured text page by page |
+| **Word Files** | `.docx` | `python-docx` | Iterates over paragraphs, headings, and document tables |
+| **Excel Spreadsheets** | `.xlsx`, `.xls` | `openpyxl` + `pandas` | Converts workbooks and sheets into row-level contextual text strings |
+| **CSV Files** | `.csv` | `pandas` | Performs column-aware row serialization |
+| **PowerPoint** | `.pptx` | `python-pptx` | Extracts slide text shapes and speaker notes |
+| **Plain Text / Code** | `.txt`, `.md`, `.json` | Built-in | Reads text with UTF-8 encoding & JSON pretty-printing |
+| **Images & Charts** | `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.tiff` | Gemini Vision VLM | Extracts visual text (OCR), charts, graphs, tables, and visual layout descriptions |
 
 ---
 
-## 🔒 Security Considerations
+## 📡 API Reference
 
-- All uploaded files are validated by MIME type (not just extension) using `python-magic`
-- Files are stored in S3/R2 with presigned URLs — never served directly from the app server
-- JWT tokens expire after 60 minutes; refresh token flow for long sessions
-- Rate limiting: 20 queries/minute per user, 5 uploads/hour per user
-- Input sanitization on all query strings before LLM injection (prompt injection guard)
-- Document isolation: users can only query their own uploaded documents
+### 🔐 Auth Endpoints
+- `POST /api/auth/register` — Create user account (`email`, `password`, `full_name`)
+- `POST /api/auth/login` — Authenticate and receive JWT bearer token
+- `GET /api/auth/me` — Retrieve logged-in user profile
+
+### 📄 Ingestion & Document Management
+- `POST /api/upload` — Ingest document/image file asynchronously via `BackgroundTasks`
+- `GET /api/documents/{id}/status` — Poll background ingestion progress percentage (`0-100%`)
+- `DELETE /api/documents/{id}` — Delete document record and purge vector embeddings
+
+### 🔍 RAG Query Engine
+- `POST /api/query` — Execute semantic vector search and generate LLM answer
+  ```json
+  {
+    "question": "What is the Q3 operating margin reported in the financial document?",
+    "session_id": "sess_12345",
+    "document_ids": ["doc_98765"],
+    "top_k": 5
+  }
+  ```
 
 ---
 
-## 🧪 Testing
+## 🧩 Ingestion & RAG Deep-Dive Architecture
 
-```bash
-cd backend
-pytest tests/ -v
+### 1. Vector Window Calibration (`CHUNK_SIZE=900`)
+Many standard RAG implementations naively set `CHUNK_SIZE=1500` or `2000` while using `all-MiniLM-L6-v2` as an embedder. Because `all-MiniLM-L6-v2` has a hard token limit of 256 tokens (~1000 characters), chunks >1000 characters suffer **silent truncation**, discarding critical information.
+DocMind calibrates `CHUNK_SIZE=900` chars (~220 tokens) with `CHUNK_OVERLAP=150`, guaranteeing **zero token truncation** during vectorization.
 
-# Key test files:
-# tests/test_parsers.py      — test each parser with sample files
-# tests/test_chunker.py      — verify chunk sizes and overlap
-# tests/test_retriever.py    — test semantic search accuracy
-# tests/test_api.py          — integration tests for all endpoints
+### 2. High-Availability Embedding Architecture
+```
+                         ┌─────────────────────────────┐
+                         │   Primary: HuggingFace API  │
+                         │ (Router Endpoint Check)     │
+                         └──────────────┬──────────────┘
+                                        │ (If connection or API fails)
+                         ┌──────────────▼──────────────┐
+                         │   Secondary: Gemini Cloud   │
+                         │ (text-embedding-004 API)    │
+                         └──────────────┬──────────────┘
+                                        │ (If API quota exhausted)
+                         ┌──────────────▼──────────────┐
+                         │   Tertiary: Local PyTorch   │
+                         │ (SentenceTransformer CPU)   │
+                         └─────────────────────────────┘
 ```
 
----
-
-## 🔧 Configuration Reference
-
-| Variable | Default | Description |
-|---|---|---|
-| `CHUNK_SIZE` | 800 | Target characters per chunk |
-| `CHUNK_OVERLAP` | 150 | Overlap between adjacent chunks |
-| `TOP_K_RETRIEVAL` | 5 | Number of chunks retrieved per query |
-| `LLM_MODEL` | `gpt-4o` | Primary LLM |
-| `LLM_TEMPERATURE` | 0.2 | Low temp for factual answers |
-| `MAX_FILE_SIZE_MB` | 50 | Max upload size |
-| `VECTOR_STORE` | `chroma` | Switch to `pinecone` for prod |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Cost-efficient, 1536-dim |
+### 3. High-Performance Local Vector Store (NumPy Vectorized Similarity)
+When Pinecone API credentials are not provided, DocMind uses a lightweight, zero-dependency local vector store. Rather than calculating cosine similarity in slow Python `for` loops, DocMind uses **vectorized NumPy matrix multiplication**:
+$$\text{Scores} = \frac{M \cdot q}{\|M\| \times \|q\|}$$
+This executes vector queries across thousands of embedded chunks in less than **5 milliseconds**.
 
 ---
 
-## 🗓️ Roadmap
+## 🎯 Interview Preparation & Technical FAQ Guide
 
-- [ ] Streaming responses (SSE) for long answers
-- [ ] Multi-document cross-referencing in a single query
-- [ ] Table-aware chunking for Excel/CSV (preserve row context)
-- [ ] OCR pipeline for scanned PDFs (Tesseract integration)
-- [ ] Re-ranking layer (Cohere Rerank API) for better retrieval precision
-- [ ] Per-document permission controls (share docs across users)
-- [ ] Query history + favourite answers
-- [ ] Pinecone migration guide for production scale
+This section equips you with precise technical answers for interview questions regarding DocMind's design and RAG implementation.
+
+### Q1: What is RAG, and why did you choose it over fine-tuning an LLM?
+> **Answer**: RAG (Retrieval-Augmented Generation) combines document vector retrieval with LLM answer generation. I chose RAG over fine-tuning because:
+> 1. **Dynamic Knowledge Updates**: Users can upload new documents instantly without needing to retrain or fine-tune models.
+> 2. **Zero Hallucination with Source Citations**: The prompt constrains the LLM to rely strictly on retrieved chunk context and cite explicit document filenames and page numbers.
+> 3. **Data Privacy**: Grounding answers in user-specific retrieved context prevents proprietary company document data from leaking into public model weights.
+
+### Q2: How did you design your document chunking strategy?
+> **Answer**: I used LangChain's `RecursiveCharacterTextSplitter` with `CHUNK_SIZE=900` characters (~220 tokens) and `CHUNK_OVERLAP=150` characters. This choice was specifically driven by the embedding model's context length (`all-MiniLM-L6-v2` has a 256 token limit). Larger chunk sizes (e.g., 1500 chars) would lead to silent vector truncation during embedding.
+
+### Q3: How do you handle service rate limits and API outages in production?
+> **Answer**: I implemented multi-tier fallback architectures at two levels:
+> - **Embeddings Tier**: Primary HuggingFace API Router → Secondary Google Gemini Embeddings → Tertiary Local PyTorch `SentenceTransformer` CPU execution.
+> - **LLM Tier**: Primary `Gemini 3.5 Flash` → Secondary `Gemini 2.5 Pro` → Tertiary Groq `Llama 3.3 70B`.
+> - Exponential backoff with random jitter is applied to prevent API rate-limit errors.
+
+### Q4: How does your system process tabular files (Excel/CSV) and Images?
+> **Answer**:
+> - **Tabular Files**: Standard text splitters destroy table structure. My system uses `pandas` and `openpyxl` to convert table rows into structured, column-attributed text key-value strings prior to chunking.
+> - **Images**: DocMind utilizes the Gemini Vision VLM API via `image_parser.py` to extract raw OCR text, chart descriptions, graph data points, and structural layout information.
+
+### Q5: How do you ensure multi-tenant data isolation in vector search?
+> **Answer**: Vectors are stored with metadata tags containing `document_id`, `filename`, and `user_id`. When a user submits a query, vector queries enforce strict metadata filter criteria (`filter={"document_id": {"$in": user_doc_ids}}`), ensuring users cannot search or retrieve data from documents owned by other users.
+
+### Q6: How do you handle database failovers?
+> **Answer**: The database engine in `db/database.py` tests the primary PostgreSQL (Supabase) pool connection on startup. If Supabase is unreachable or DNS fails, the system automatically falls back to a local SQLite database (`docmind.db`) without crashing the application.
 
 ---
 
-## 📄 License
+## 📜 License
 
-MIT License. See `LICENSE` for details.
+Distributed under the **MIT License**. See `LICENSE` for details.

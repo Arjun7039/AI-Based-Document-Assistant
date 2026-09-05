@@ -3,7 +3,7 @@
 .env.local
 .env.production
 .env.example
-
+Docu_simple.md
 # ─── Python ───
 __pycache__/
 *.py[cod]

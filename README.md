@@ -19,6 +19,10 @@
 - 🚀 **Dual Vector Store Architecture**: Pinecone vector index for production cloud deployment with seamless local vector store fallback utilizing NumPy matrix algebra for vector cosine similarity calculations.
 - 💾 **Resilient Database Layer**: Automatic connection testing for PostgreSQL (Supabase) with seamless local SQLite (`docmind.db`) fallback and idempotent column migrations.
 - 🔐 **JWT Authentication & Document Isolation**: Full register/login auth flow with bcrypt hashing and user-level document metadata isolation.
+<<<<<<< ours
+=======
+- 🩺 **Health & Real-time Diagnostics**: Built-in `/api/health` connectivity indicator and `/api/debug/config` safe environment inspection endpoint.
+>>>>>>> theirs
 
 ---
 
@@ -56,7 +60,11 @@
          ┌──────────▼──────────────┐   ┌──────────▼─────────────┐
          │       Vector DB         │   │     Relational DB      │
          │  Pinecone (Production)  │   │  PostgreSQL (Supabase) │
+<<<<<<< ours
          │  Local Vector (Dev NumPy│   │  SQLite (Local Fallback│
+=======
+         │  Local Vector (Dev NumPy)│  │  SQLite (Local Fallback│
+>>>>>>> theirs
          └─────────────────────────┘   └────────────────────────┘
 ```
 
@@ -159,6 +167,10 @@ AI Based document assistant/
 │
 ├── render.yaml                    # Render cloud backend deployment config
 ├── .env.example                   # Template environment variables
+<<<<<<< ours
+=======
+├── Docu_simple.md                 # Interview quick-summary documentation
+>>>>>>> theirs
 └── README.md                      # Complete system documentation & interview guide
 ```
 
@@ -183,7 +195,11 @@ GROQ_API_KEY=your_groq_api_key
 # ─── 3. Embeddings Engine Config ───
 EMBEDDING_PROVIDER=huggingface   # Provider chain: "huggingface" | "gemini" | "local"
 HUGGINGFACE_API_TOKEN=your_huggingface_api_token
+<<<<<<< ours
 EMBEDDING_MODEL=models/gemini-embedding-2
+=======
+EMBEDDING_MODEL=models/text-embedding-004
+>>>>>>> theirs
 EMBEDDING_DIMENSION=384
 
 # ─── 4. Vector Database ───
@@ -264,6 +280,13 @@ npm run dev
 
 ## 📡 API Reference
 
+<<<<<<< ours
+=======
+### 🩺 System & Diagnostics
+- `GET /api/health` — API health check for status & connectivity verification
+- `GET /api/debug/config` — Safe environment configuration inspector (masks secrets)
+
+>>>>>>> theirs
 ### 🔐 Auth Endpoints
 - `POST /api/auth/register` — Create user account (`email`, `password`, `full_name`)
 - `POST /api/auth/login` — Authenticate and receive JWT bearer token
@@ -271,9 +294,22 @@ npm run dev
 
 ### 📄 Ingestion & Document Management
 - `POST /api/upload` — Ingest document/image file asynchronously via `BackgroundTasks`
+<<<<<<< ours
 - `GET /api/documents/{id}/status` — Poll background ingestion progress percentage (`0-100%`)
 - `DELETE /api/documents/{id}` — Delete document record and purge vector embeddings
 
+=======
+- `GET /api/documents` — List user's uploaded documents
+- `GET /api/documents/{id}/status` — Poll background ingestion progress percentage (`0-100%`)
+- `DELETE /api/documents/{id}` — Delete document record and purge vector embeddings
+
+### 💬 Sessions & Chat History
+- `GET /api/sessions` — List active user chat sessions
+- `GET /api/sessions/{id}` — Get session metadata and message history
+- `GET /api/sessions/{id}/documents` — List documents associated with session
+- `DELETE /api/sessions/{id}` — Delete session and attached message history
+
+>>>>>>> theirs
 ### 🔍 RAG Query Engine
 - `POST /api/query` — Execute semantic vector search and generate LLM answer
   ```json
@@ -312,42 +348,13 @@ DocMind calibrates `CHUNK_SIZE=900` chars (~220 tokens) with `CHUNK_OVERLAP=150`
 ```
 
 ### 3. High-Performance Local Vector Store (NumPy Vectorized Similarity)
+<<<<<<< ours
 When Pinecone API credentials are not provided, DocMind uses a lightweight, zero-dependency local vector store. Rather than calculating cosine similarity in slow Python `for` loops, DocMind uses **vectorized NumPy matrix multiplication**:
+=======
+When Pinecone API credentials are not provided, DocMind uses a lightweight, zero-dependency local vector store (`./chroma_store/vectors.json`). Rather than calculating cosine similarity in slow Python `for` loops, DocMind uses **vectorized NumPy matrix multiplication**:
+>>>>>>> theirs
 $$\text{Scores} = \frac{M \cdot q}{\|M\| \times \|q\|}$$
 This executes vector queries across thousands of embedded chunks in less than **5 milliseconds**.
-
----
-
-## 🎯 Interview Preparation & Technical FAQ Guide
-
-This section equips you with precise technical answers for interview questions regarding DocMind's design and RAG implementation.
-
-### Q1: What is RAG, and why did you choose it over fine-tuning an LLM?
-> **Answer**: RAG (Retrieval-Augmented Generation) combines document vector retrieval with LLM answer generation. I chose RAG over fine-tuning because:
-> 1. **Dynamic Knowledge Updates**: Users can upload new documents instantly without needing to retrain or fine-tune models.
-> 2. **Zero Hallucination with Source Citations**: The prompt constrains the LLM to rely strictly on retrieved chunk context and cite explicit document filenames and page numbers.
-> 3. **Data Privacy**: Grounding answers in user-specific retrieved context prevents proprietary company document data from leaking into public model weights.
-
-### Q2: How did you design your document chunking strategy?
-> **Answer**: I used LangChain's `RecursiveCharacterTextSplitter` with `CHUNK_SIZE=900` characters (~220 tokens) and `CHUNK_OVERLAP=150` characters. This choice was specifically driven by the embedding model's context length (`all-MiniLM-L6-v2` has a 256 token limit). Larger chunk sizes (e.g., 1500 chars) would lead to silent vector truncation during embedding.
-
-### Q3: How do you handle service rate limits and API outages in production?
-> **Answer**: I implemented multi-tier fallback architectures at two levels:
-> - **Embeddings Tier**: Primary HuggingFace API Router → Secondary Google Gemini Embeddings → Tertiary Local PyTorch `SentenceTransformer` CPU execution.
-> - **LLM Tier**: Primary `Gemini 3.5 Flash` → Secondary `Gemini 2.5 Pro` → Tertiary Groq `Llama 3.3 70B`.
-> - Exponential backoff with random jitter is applied to prevent API rate-limit errors.
-
-### Q4: How does your system process tabular files (Excel/CSV) and Images?
-> **Answer**:
-> - **Tabular Files**: Standard text splitters destroy table structure. My system uses `pandas` and `openpyxl` to convert table rows into structured, column-attributed text key-value strings prior to chunking.
-> - **Images**: DocMind utilizes the Gemini Vision VLM API via `image_parser.py` to extract raw OCR text, chart descriptions, graph data points, and structural layout information.
-
-### Q5: How do you ensure multi-tenant data isolation in vector search?
-> **Answer**: Vectors are stored with metadata tags containing `document_id`, `filename`, and `user_id`. When a user submits a query, vector queries enforce strict metadata filter criteria (`filter={"document_id": {"$in": user_doc_ids}}`), ensuring users cannot search or retrieve data from documents owned by other users.
-
-### Q6: How do you handle database failovers?
-> **Answer**: The database engine in `db/database.py` tests the primary PostgreSQL (Supabase) pool connection on startup. If Supabase is unreachable or DNS fails, the system automatically falls back to a local SQLite database (`docmind.db`) without crashing the application.
-
 ---
 
 ## 📜 License

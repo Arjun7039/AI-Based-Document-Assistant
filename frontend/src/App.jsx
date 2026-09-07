@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar'
 import ChatWindow from './components/ChatWindow'
 import SourcePanel from './components/SourcePanel'
 import AuthWindow from './components/AuthWindow'
+import PageInspectorModal from './components/PageInspectorModal'
 import useStore from './store/useStore'
 import { HiOutlineBookOpen, HiOutlineExclamationTriangle } from 'react-icons/hi2'
 
@@ -156,6 +157,7 @@ function AppContent() {
           </>
         )}
       </div>
+      <PageInspectorModal />
     </div>
   )
 }

@@ -289,6 +289,109 @@ export async function queryDocuments(question, sessionId, documentIds, topK, ima
   }
 }
 
+export async function queryDocumentsStream(
+  question,
+  sessionId,
+  documentIds,
+  topK,
+  imageFile,
+  { onStatus, onToken, onSources, onDone, onError }
+) {
+  const isLive = await ensureBackend()
+
+  if (isLive) {
+    const formData = new FormData()
+    formData.append('question', question)
+    if (sessionId) formData.append('session_id', sessionId)
+    if (documentIds && documentIds.length > 0) {
+      formData.append('document_ids', JSON.stringify(documentIds))
+    }
+    if (topK) formData.append('top_k', topK)
+    if (imageFile) formData.append('file', imageFile)
+
+    const token = localStorage.getItem('docmind_token')
+    const headers = {}
+    if (token) {
+      headers.Authorization = `Bearer ${token}`
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/query/stream`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      })
+
+      if (!response.ok) {
+        throw new Error(`Server returned status ${response.status}`)
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder('utf-8')
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const events = buffer.split('\n\n')
+        buffer = events.pop() || ''
+
+        for (const evt of events) {
+          const lines = evt.split('\n')
+          let eventType = ''
+          let eventData = ''
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.replace('event: ', '').trim()
+            } else if (line.startsWith('data: ')) {
+              eventData = line.replace('data: ', '').trim()
+            }
+          }
+
+          if (eventData) {
+            try {
+              const parsed = JSON.parse(eventData)
+              if (eventType === 'status') {
+                onStatus?.(parsed)
+              } else if (eventType === 'token') {
+                onToken?.(parsed.delta)
+              } else if (eventType === 'sources') {
+                onSources?.(parsed.sources, parsed.crag_grade, parsed.confidence_score, parsed.evaluation_details)
+              } else if (eventType === 'done') {
+                onDone?.(parsed)
+              }
+            } catch (jsonErr) {
+              console.warn('Failed to parse SSE event data:', eventData)
+            }
+          }
+        }
+      }
+      return
+    } catch (streamErr) {
+      onError?.(streamErr)
+      return
+    }
+  }
+
+  // Fallback simulation for dev/offline mode
+  onStatus?.({ stage: 'planning', message: 'Analyzing query intent...' })
+  await delay(400)
+  onStatus?.({ stage: 'retrieving', message: 'Retrieving context from documents...' })
+  await delay(500)
+  const mock = mockResponses[0]
+  onSources?.(mock.sources, 'CORRECT', 94.5, 'High confidence context match.')
+  onStatus?.({ stage: 'generating', message: 'Streaming response...' })
+  const words = mock.answer.split(' ')
+  for (const word of words) {
+    onToken?.(word + ' ')
+    await delay(30)
+  }
+  onDone?.({ latency_ms: 1100, cached: false })
+}
+
 export async function getSessionDocuments(sessionId) {
   const isLive = await ensureBackend()
 

@@ -21,7 +21,8 @@ pandas==2.2.3
 sentence-transformers>=2.2.0
 
 # ─── HuggingFace Inference API ───
-# Uses 'requests' library (already installed via sentence-transformers)
+huggingface_hub>=0.23.0
+requests>=2.31.0
 
 # ─── Text Processing ───
 langchain-text-splitters==0.3.4
@@ -42,8 +43,9 @@ python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
 
-# ─── Rate Limiting ───
+# ─── Rate Limiting & Cache ───
 slowapi==0.1.9
+redis>=5.0.0
 
 # ─── Utilities ───
 python-magic-bin==0.4.14;sys_platform=="win32"

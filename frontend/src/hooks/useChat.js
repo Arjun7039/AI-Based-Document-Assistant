@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { queryDocuments } from '../api/client'
+import { queryDocuments, queryDocumentsStream } from '../api/client'
 import useStore from '../store/useStore'
 
 export default function useChat() {
@@ -10,6 +10,7 @@ export default function useChat() {
     addMessage,
     updateMessage,
     setSources,
+    setEvaluationData,
     setQueryState,
     openSourcePanel,
     selectedDocumentIds,
@@ -50,32 +51,77 @@ export default function useChat() {
     try {
       setQueryState(true)
 
-      const response = await queryDocuments(
+      let streamedContent = ''
+
+      await queryDocumentsStream(
         question.trim(),
         sessionId,
         selectedDocumentIds.length > 0 ? selectedDocumentIds : undefined,
         undefined,
-        imageFile
+        imageFile,
+        {
+          onStatus: (statusEvent) => {
+            updateMessage(assistantMsg.id, {
+              statusMessage: statusEvent.message,
+            })
+          },
+          onSources: (incomingSources, cragGrade, confidenceScore, evaluationDetails) => {
+            const safeSources = Array.isArray(incomingSources) ? incomingSources : []
+            if (safeSources.length > 0) {
+              setSources(safeSources, {
+                cragGrade,
+                confidenceScore,
+                evaluationDetails,
+              })
+              openSourcePanel()
+            }
+            updateMessage(assistantMsg.id, {
+              sources: safeSources,
+              cragGrade: cragGrade,
+              confidenceScore: confidenceScore,
+              evaluationDetails: evaluationDetails,
+            })
+          },
+          onToken: (delta) => {
+            streamedContent += delta
+            updateMessage(assistantMsg.id, {
+              content: streamedContent,
+              isLoading: false,
+              statusMessage: null,
+            })
+          },
+          onDone: (doneData) => {
+            if (doneData) {
+              setEvaluationData({
+                latencyMs: doneData.latency_ms,
+                cached: doneData.cached,
+                cragGrade: doneData.crag_grade,
+                confidenceScore: doneData.confidence_score,
+              })
+            }
+            updateMessage(assistantMsg.id, {
+              content: streamedContent || 'No response generated.',
+              isLoading: false,
+              statusMessage: null,
+              latencyMs: doneData?.latency_ms,
+              cached: doneData?.cached,
+              cragGrade: doneData?.crag_grade,
+              confidenceScore: doneData?.confidence_score,
+            })
+          },
+          onError: (streamErr) => {
+            console.error('Streaming error:', streamErr)
+            if (!streamedContent) {
+              updateMessage(assistantMsg.id, {
+                content: 'Sorry, I encountered an error processing your question. Please try again.',
+                isLoading: false,
+                isError: true,
+                sources: [],
+              })
+            }
+          },
+        }
       )
-
-      // Safely extract sources — always array
-      const responseSources = Array.isArray(response.sources) ? response.sources : []
-
-      // Update assistant message with response
-      updateMessage(assistantMsg.id, {
-        content: response.answer || 'No response received.',
-        isLoading: false,
-        tokensUsed: response.tokens_used,
-        latencyMs: response.latency_ms,
-        sources: responseSources,
-      })
-
-      // Set sources and open panel
-      if (responseSources.length > 0) {
-        setSources(responseSources)
-        openSourcePanel()
-      }
-
     } catch (queryError) {
       console.error('Query failed:', queryError)
       const msg =

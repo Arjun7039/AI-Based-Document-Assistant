@@ -3,7 +3,16 @@ import { HiOutlineBars3, HiOutlineArrowRightOnRectangle, HiOutlineXMark } from '
 import useStore from '../store/useStore'
 
 export default function Header() {
-  const { toggleSidebar, isSidebarOpen, documents, user, logoutAction } = useStore()
+  const {
+    toggleSidebar,
+    isSidebarOpen,
+    documents,
+    user,
+    logoutAction,
+    toggleSourcePanel,
+    isSourcePanelOpen,
+    sources,
+  } = useStore()
   const readyDocs = documents.filter((d) => d.status === 'ready').length
   const userInitial = user?.email ? user.email.charAt(0).toUpperCase() : 'U'
 
@@ -31,8 +40,29 @@ export default function Header() {
 
       {/* Right */}
       <div className="flex items-center gap-2 sm:gap-3">
+        {/* Toggle Right-side Citation / Confidence Box */}
+        <button
+          onClick={toggleSourcePanel}
+          title="Toggle Grounding Proofs & Confidence Panel"
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all active:scale-95 border ${
+            isSourcePanelOpen
+              ? 'bg-indigo-600 text-white border-indigo-600 shadow-soft'
+              : 'bg-white text-slate-700 border-slate-200 hover:border-indigo-300 hover:text-indigo-600 shadow-xs'
+          }`}
+        >
+          <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+          <span className="hidden sm:inline">Grounding Proofs</span>
+          {sources.length > 0 && (
+            <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono font-black ${
+              isSourcePanelOpen ? 'bg-white/20 text-white' : 'bg-indigo-50 text-indigo-700 border border-indigo-100'
+            }`}>
+              {sources.length}
+            </span>
+          )}
+        </button>
+
         {readyDocs > 0 && (
-          <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80">
+          <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200/80">
             <span className="relative flex w-2 h-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
               <span className="relative inline-flex w-2 h-2 rounded-full bg-emerald-500" />

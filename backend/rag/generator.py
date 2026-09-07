@@ -1,4 +1,4 @@
-"""LLM Generator — generates answers using a 3-tier fallback chain.
+"""LLM Generator — generates answers using a 3-tier fallback chain (sync + SSE streaming).
 
 Model priority:
   1. gemini-3.5-flash (primary — advanced, fast, and high reasoning)
@@ -6,6 +6,7 @@ Model priority:
   3. Groq llama-3.3-70b (final fallback — if Gemini fails or quota exhausted)
 """
 
+from typing import Iterator
 from google.api_core.exceptions import ResourceExhausted
 import google.generativeai as genai
 from config import settings
@@ -71,21 +72,54 @@ def generate_answer(messages: list[dict], image_bytes: bytes | None = None, imag
     raise RuntimeError("All LLM providers failed. Check your API keys and quotas.")
 
 
+def generate_answer_stream(
+    messages: list[dict],
+    image_bytes: bytes | None = None,
+    image_mime: str | None = None,
+) -> Iterator[str]:
+    """Generate answer tokens via streaming generator with 3-tier fallback.
+
+    Yields str tokens as they arrive from the LLM.
+    """
+    primary_model = settings.LLM_MODEL
+    try:
+        for token in _call_gemini_stream(messages, image_bytes, image_mime, model_name=primary_model):
+            yield token
+        return
+    except Exception as e:
+        logger.warning(f"{primary_model} streaming failed: {e}. Falling back to secondary...")
+
+    fallback_model = settings.LLM_FALLBACK_MODEL
+    if fallback_model and fallback_model != primary_model:
+        try:
+            for token in _call_gemini_stream(messages, image_bytes, image_mime, model_name=fallback_model):
+                yield token
+            return
+        except Exception as e:
+            logger.warning(f"{fallback_model} streaming failed: {e}. Falling back to Groq...")
+
+    try:
+        for token in _call_groq_stream(messages):
+            yield token
+        return
+    except Exception as e:
+        logger.error(f"Groq streaming also failed: {e}")
+        yield "An error occurred while generating the response. Please try again."
+
+
 def _call_gemini(
     messages: list[dict],
     image_bytes: bytes | None = None,
     image_mime: str | None = None,
     model_name: str | None = None,
 ) -> dict:
-    """Call Google Gemini with a specified model."""
+    """Call Google Gemini synchronously with a specified model."""
     _ensure_gemini()
 
     model_name = model_name or settings.LLM_MODEL
-
     system_instruction = None
     gemini_messages = []
 
-    # Convert standard roles to Gemini roles (user, model)
     for msg in messages:
         if msg["role"] == "system":
             system_instruction = msg["content"]
@@ -118,16 +152,13 @@ def _call_gemini(
 
     logger.info(f"Gemini response: {tokens_used} tokens ({model_name})")
 
-    # Safely extract text — response.text raises ValueError if blocked or empty
     try:
         answer_text = response.text
     except (ValueError, AttributeError):
-        # Check if response was blocked by safety filters
         if hasattr(response, 'prompt_feedback') and response.prompt_feedback:
             logger.warning(f"Gemini response blocked: {response.prompt_feedback}")
             answer_text = "The response was blocked by content safety filters. Please try rephrasing your question."
         elif hasattr(response, 'candidates') and response.candidates:
-            # Try to extract partial text from candidates
             candidate = response.candidates[0]
             if hasattr(candidate, 'content') and candidate.content and candidate.content.parts:
                 answer_text = candidate.content.parts[0].text
@@ -143,6 +174,53 @@ def _call_gemini(
     }
 
 
+def _call_gemini_stream(
+    messages: list[dict],
+    image_bytes: bytes | None = None,
+    image_mime: str | None = None,
+    model_name: str | None = None,
+) -> Iterator[str]:
+    """Call Google Gemini with token streaming."""
+    _ensure_gemini()
+    model_name = model_name or settings.LLM_MODEL
+    system_instruction = None
+    gemini_messages = []
+
+    for msg in messages:
+        if msg["role"] == "system":
+            system_instruction = msg["content"]
+        elif msg["role"] == "user":
+            parts = [msg["content"]]
+            if image_bytes and image_mime:
+                parts.append({"mime_type": image_mime, "data": image_bytes})
+            gemini_messages.append({"role": "user", "parts": parts})
+        elif msg["role"] == "assistant":
+            gemini_messages.append({"role": "model", "parts": [msg["content"]]})
+
+    logger.info(f"Streaming Gemini model: {model_name}")
+
+    model = genai.GenerativeModel(
+        model_name=model_name,
+        system_instruction=system_instruction
+    )
+
+    response = model.generate_content(
+        gemini_messages,
+        generation_config=genai.types.GenerationConfig(
+            temperature=settings.LLM_TEMPERATURE,
+            max_output_tokens=settings.MAX_CONTEXT_TOKENS,
+        ),
+        stream=True,
+    )
+
+    for chunk in response:
+        try:
+            if chunk.text:
+                yield chunk.text
+        except (ValueError, AttributeError):
+            continue
+
+
 def _call_groq(messages: list[dict]) -> dict:
     """Call Groq llama-3.3-70b as final fallback."""
     client = _get_groq_client()
@@ -152,7 +230,7 @@ def _call_groq(messages: list[dict]) -> dict:
         model=groq_model,
         messages=messages,
         temperature=settings.LLM_TEMPERATURE,
-        max_tokens=min(settings.MAX_CONTEXT_TOKENS, 8000),  # Groq has a lower limit
+        max_tokens=min(settings.MAX_CONTEXT_TOKENS, 8000),
     )
 
     choice = response.choices[0]
@@ -165,3 +243,24 @@ def _call_groq(messages: list[dict]) -> dict:
         "tokens_used": usage.total_tokens,
         "model": groq_model,
     }
+
+
+def _call_groq_stream(messages: list[dict]) -> Iterator[str]:
+    """Call Groq with token streaming."""
+    client = _get_groq_client()
+    if not client:
+        raise RuntimeError("Groq client not available")
+    groq_model = "llama-3.3-70b-versatile"
+
+    stream = client.chat.completions.create(
+        model=groq_model,
+        messages=messages,
+        temperature=settings.LLM_TEMPERATURE,
+        max_tokens=min(settings.MAX_CONTEXT_TOKENS, 8000),
+        stream=True,
+    )
+
+    for chunk in stream:
+        delta = chunk.choices[0].delta
+        if delta and delta.content:
+            yield delta.content

@@ -153,153 +153,65 @@ def embed_query(text: str) -> list[float]:
 #  HuggingFace Inference API (FREE — GPU-accelerated on HF servers)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Try multiple endpoints — Render blocks api-inference.huggingface.co DNS
-# so we prioritize router.huggingface.co (confirmed working on Render)
-HF_ENDPOINTS = [
-    # Router endpoint (works on router.huggingface.co)
-    f"https://router.huggingface.co/models/{HF_MODEL_ID}",
-    # Legacy / direct API endpoints
-    f"https://api-inference.huggingface.co/models/{HF_MODEL_ID}",
-]
-
-_working_hf_endpoint = None  # Cache tuple: (endpoint_url, use_auth)
+_hf_client = None
 
 
-def _hf_headers(use_auth: bool = True) -> dict:
-    """Build HTTP headers for HuggingFace API."""
-    headers = {"Content-Type": "application/json"}
-    token = settings.HUGGINGFACE_API_TOKEN
-    if use_auth and token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-
-def _find_working_endpoint() -> tuple[str, bool]:
-    """Test all HF endpoints and return tuple (endpoint_url, use_auth)."""
-    global _working_hf_endpoint
-    if _working_hf_endpoint:
-        return _working_hf_endpoint
-
-    import requests
-    import socket
-
-    # First, run DNS diagnostics
-    for host in ['api-inference.huggingface.co', 'router.huggingface.co', 'huggingface.co']:
-        try:
-            ip = socket.getaddrinfo(host, 443)[0][4][0]
-            logger.info(f"DNS OK: {host} -> {ip}")
-        except Exception as e:
-            logger.warning(f"DNS FAIL: {host} -> {e}")
-
-    # Try each endpoint
-    for endpoint in HF_ENDPOINTS:
-        try:
-            logger.info(f"Testing HuggingFace endpoint: {endpoint}")
-            response = requests.post(
-                endpoint,
-                headers=_hf_headers(use_auth=True),
-                json={"inputs": "test", "options": {"wait_for_model": True}},
-                timeout=30,
-            )
-            if response.status_code in [200, 503]:  # 503 = model loading, but endpoint works
-                _working_hf_endpoint = (endpoint, True)
-                logger.info(f"✅ Using HuggingFace endpoint: {endpoint}")
-                return _working_hf_endpoint
-            elif response.status_code == 403:
-                logger.info(f"Token returned 403, testing unauthenticated request to {endpoint}...")
-                resp_no_auth = requests.post(
-                    endpoint,
-                    headers=_hf_headers(use_auth=False),
-                    json={"inputs": "test", "options": {"wait_for_model": True}},
-                    timeout=30,
-                )
-                if resp_no_auth.status_code in [200, 503]:
-                    _working_hf_endpoint = (endpoint, False)
-                    logger.info(f"✅ Using HuggingFace endpoint (unauthenticated): {endpoint}")
-                    return _working_hf_endpoint
-                else:
-                    logger.warning(f"Endpoint returned {response.status_code} (token) / {resp_no_auth.status_code} (no auth): {endpoint}")
-            else:
-                logger.warning(f"Endpoint returned {response.status_code}: {endpoint}")
-        except Exception as e:
-            logger.warning(f"Endpoint unreachable: {endpoint} -> {e}")
-
-    raise RuntimeError(
-        "All HuggingFace API endpoints are unreachable. "
-        "Check network connectivity or set EMBEDDING_PROVIDER=local"
-    )
+def _get_hf_client():
+    """Lazy initialize official Hugging Face InferenceClient."""
+    global _hf_client
+    if _hf_client is None:
+        from huggingface_hub import InferenceClient
+        token = settings.HUGGINGFACE_API_TOKEN or None
+        _hf_client = InferenceClient(token=token)
+    return _hf_client
 
 
 def _hf_embed_batch(texts: list[str], batch_index: int = 0) -> list[list[float]]:
-    """Send a batch of texts to HuggingFace Inference API and return embeddings.
-
-    Tries multiple API endpoints and caches the working one.
-    """
-    import requests
+    """Send a batch of texts to HuggingFace Inference API and return embeddings."""
     import numpy as np
 
-    endpoint, use_auth = _find_working_endpoint()
+    client = _get_hf_client()
     retries = 4
-    delay = 5.0
+    delay = 3.0
+    model_name = settings.EMBEDDING_MODEL or HF_MODEL_ID
 
     for attempt in range(retries):
         try:
-            response = requests.post(
-                endpoint,
-                headers=_hf_headers(use_auth=use_auth),
-                json={"inputs": texts, "options": {"wait_for_model": True}},
-                timeout=120,
-            )
+            raw = client.feature_extraction(texts, model=model_name)
+            arr = np.array(raw)
+            if arr.ndim == 3:
+                # (batch_size, seq_len, hidden_dim) -> mean-pool token embeddings
+                embeddings = np.mean(arr, axis=1).tolist()
+            elif arr.ndim == 2:
+                # (batch_size, hidden_dim)
+                embeddings = arr.tolist()
+            elif arr.ndim == 1:
+                embeddings = [arr.tolist()]
+            else:
+                raise ValueError(f"Unexpected shape from HuggingFace embeddings: {arr.shape}")
+            return embeddings
 
-            if response.status_code == 200:
-                embeddings = response.json()
-                result = []
-                for emb in embeddings:
-                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                        # Token-level embeddings → mean-pool
-                        pooled = np.mean(emb, axis=0).tolist()
-                        result.append(pooled)
-                    else:
-                        result.append(emb)
-                return result
-
-            elif response.status_code == 503:
-                # Model loading (cold start)
-                body = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-                estimated_time = body.get("estimated_time", delay)
-                wait_time = min(estimated_time + 2, 30)
+        except Exception as e:
+            err_str = str(e)
+            if "503" in err_str or "loading" in err_str.lower():
+                wait_time = min(delay + 3, 30)
                 logger.info(f"HuggingFace model loading (cold start), waiting {wait_time:.0f}s...")
                 time.sleep(wait_time)
                 continue
-
-            elif response.status_code == 429:
+            elif "429" in err_str or "rate limit" in err_str.lower():
                 jitter = random.uniform(0.5, 1.5)
                 wait_time = delay * jitter
                 logger.warning(f"HuggingFace rate limit on batch {batch_index}. Retrying in {wait_time:.1f}s...")
                 time.sleep(wait_time)
                 delay *= 2.0
                 continue
-
             else:
-                error_msg = response.text[:300]
-                raise RuntimeError(f"HuggingFace API error {response.status_code}: {error_msg}")
-
-        except requests.exceptions.ConnectionError as e:
-            if attempt == retries - 1:
-                raise
-            logger.warning(f"HuggingFace connection error on batch {batch_index} (attempt {attempt+1}): {e}")
-            # Reset cached endpoint — maybe a different one works
-            global _working_hf_endpoint
-            _working_hf_endpoint = None
-            time.sleep(delay)
-            delay *= 1.5
-
-        except requests.exceptions.Timeout:
-            if attempt == retries - 1:
-                raise RuntimeError(f"HuggingFace API timeout after {retries} attempts on batch {batch_index}")
-            logger.warning(f"HuggingFace API timeout on batch {batch_index}, retrying...")
-            time.sleep(delay)
-            delay *= 1.5
+                if attempt == retries - 1:
+                    logger.error(f"HuggingFace InferenceClient error on batch {batch_index}: {e}")
+                    raise
+                logger.warning(f"HuggingFace retry {attempt+1}/{retries} on batch {batch_index}: {e}")
+                time.sleep(delay)
+                delay *= 1.5
 
     raise RuntimeError(f"HuggingFace API failed after {retries} retries on batch {batch_index}")
 

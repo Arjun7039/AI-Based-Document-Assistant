@@ -337,15 +337,49 @@ const useStore = create((set, get) => ({
     set({ selectedDocumentIds: [] })
   },
 
-  // ─── Sources ───
+  // ─── Sources & Evaluation ───
   sources: [],
-
-  setSources: (newSources) => {
-    // Always validate input
-    const safe = Array.isArray(newSources) ? newSources : []
-    set({ sources: safe })
+  evaluationData: {
+    confidenceScore: null,
+    cragGrade: null,
+    evaluationDetails: null,
+    latencyMs: null,
+    cached: false,
+    subQueries: [],
   },
-  clearSources: () => set({ sources: [] }),
+
+  setSources: (newSources, evalMeta = {}) => {
+    const safe = Array.isArray(newSources) ? newSources : []
+    set((state) => ({
+      sources: safe,
+      evaluationData: {
+        confidenceScore: evalMeta.confidenceScore ?? state.evaluationData.confidenceScore,
+        cragGrade: evalMeta.cragGrade ?? state.evaluationData.cragGrade,
+        evaluationDetails: evalMeta.evaluationDetails ?? state.evaluationData.evaluationDetails,
+        latencyMs: evalMeta.latencyMs ?? state.evaluationData.latencyMs,
+        cached: evalMeta.cached ?? state.evaluationData.cached,
+        subQueries: evalMeta.subQueries ?? state.evaluationData.subQueries,
+      },
+    }))
+  },
+
+  setEvaluationData: (evalData = {}) => {
+    set((state) => ({
+      evaluationData: { ...state.evaluationData, ...evalData },
+    }))
+  },
+
+  clearSources: () => set({
+    sources: [],
+    evaluationData: {
+      confidenceScore: null,
+      cragGrade: null,
+      evaluationDetails: null,
+      latencyMs: null,
+      cached: false,
+      subQueries: [],
+    },
+  }),
 
   // ─── UI State ───
   isUploading: false,
@@ -365,6 +399,11 @@ const useStore = create((set, get) => ({
 
   toggleSourcePanel: () =>
     set((state) => ({ isSourcePanelOpen: !state.isSourcePanelOpen })),
+
+  // ─── Document / Page Inspector Modal ───
+  activeInspector: null, // { filename, page, text, highlightQuery, score }
+  openInspector: (data) => set({ activeInspector: data }),
+  closeInspector: () => set({ activeInspector: null }),
 
   openSourcePanel: () => set({ isSourcePanelOpen: true }),
   closeSourcePanel: () => set({ isSourcePanelOpen: false }),

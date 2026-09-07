@@ -60,7 +60,20 @@ app.add_middleware(
 )
 
 
-# ─── Health Check ───
+# ─── Root & Health Check ───
+@app.get("/")
+@app.head("/")
+async def root():
+    """Root endpoint for uptime checks and service discovery."""
+    return {
+        "status": "online",
+        "service": "DocMind API",
+        "version": "1.0.0",
+        "docs": "/docs",
+        "health": "/api/health",
+    }
+
+
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint used by frontend to detect backend availability."""

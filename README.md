@@ -26,8 +26,11 @@
 - 🚀 **Dual Vector Store Architecture**: Pinecone vector index for production cloud deployment with seamless local vector store fallback utilizing NumPy matrix algebra for vector cosine similarity calculations.
 - 💾 **Resilient Database Layer**: Automatic connection testing for PostgreSQL (Supabase) with seamless local SQLite (`docmind.db`) fallback and idempotent column migrations.
 - 🔐 **JWT Authentication & Document Isolation**: Full register, login, and refresh token flow with bcrypt hashing and user-level document metadata isolation.
-- 🩺 **Health & Real-time Diagnostics**: Built-in `/api/health` connectivity indicator and `/api/debug/config` safe environment inspection endpoint.
-- 📊 **Visual Citation & Proof Inspector**: Right-side executive telemetry dashboard with real-time confidence gauge, CRAG grade badge, exact quote evidence with one-click copy, and document passage modal.
+- 🩺 **Health & Real-time Diagnostics**: Built-in `/api/health` connectivity indicator, root `/` service discovery, and `/api/debug/config` safe environment inspection endpoint.
+- 📊 **Visual Citation & Proof Inspector**:
+  - Interactive **In-Text Citation Badges** with hover tooltip popovers displaying confidence score and verified passage excerpts.
+  - Full-screen **Page Inspector Modal** with real-time text matching and user query keyword highlighting across document pages.
+  - Right-side executive telemetry dashboard with real-time confidence gauge, CRAG grade badge, exact quote evidence with one-click copy, and document passage viewer.
 
 ---
 
@@ -37,13 +40,13 @@
                                  ┌─────────────────────────────────────────────────────────────┐
                                  │                 FRONTEND (Vercel)                           │
                                  │              React 18 + Vite + Tailwind CSS                 │
-                                 │   UploadZone | ChatWindow | SourcePanel | SessionSidebar    │
+                                 │ UploadZone | ChatWindow | SourcePanel | PageInspectorModal  │
                                  └────────────────────┬────────────────────────────────────────┘
                                                       │ REST / SSE Stream / JWT Auth
                                  ┌────────────────────▼────────────────────────────────────────┐
                                  │                 API GATEWAY (Render)                        │
                                  │                  FastAPI (Python)                           │
-                                 │  /upload | /query/stream | /sessions | /documents | /auth   │
+                                 │  GET / | /upload | /query/stream | /sessions | /documents   │
                                  └──────┬─────────────┬───────────────┬────────────────────────┘
                                         │             │               │
                                  ┌──────▼──────┐ ┌────▼──────────┐ ┌──▼────────────┐
@@ -150,19 +153,17 @@ npm run dev
 ### Step 2: Deploy Backend to Render
 
 1. Log into [Render](https://dashboard.render.com/).
-2. Click **New +** → **Web Service**.
+2. Click **New +** → **Web Service** (or **Blueprint** using `render.yaml`).
 3. Connect your GitHub repository: `AI-Based-Document-Assistant`.
 4. Configure service settings:
    - **Name**: `docmind-backend`
    - **Region**: Oregon (US West) or Frankfurt (closest to your users)
    - **Branch**: `main`
-   - **Root Directory**: Leave blank (or `backend`)
+   - **Root Directory**: *(leave blank)*
    - **Runtime**: **Docker**
-     - *Dockerfile Path*: `backend/Dockerfile`
-     - *Docker Context*: `backend`
-   - *(Alternative: Python Runtime)*:
-     - **Build Command**: `pip install -r backend/requirements.txt`
-     - **Start Command**: `uvicorn backend.main:app --host 0.0.0.0 --port $PORT`
+     - **Dockerfile Path**: `Dockerfile` *(uses root Dockerfile tuned for repo root context)*
+     - **Docker Build Context Directory**: `.`
+     - *(Alternative)*: If setting Dockerfile Path to `backend/Dockerfile`, set Docker Build Context Directory (or Root Directory) to `backend`.
    - **Plan**: Free
 5. In the **Environment Variables** section, add your production keys:
 
@@ -224,6 +225,7 @@ npm run dev
 ## 📡 API Reference
 
 ### 🩺 System & Diagnostics
+- `GET /` & `HEAD /` — Root service discovery, platform health status, and documentation catalog
 - `GET /api/health` — API health check for status & connectivity verification
 - `GET /api/debug/config` — Safe environment configuration inspector (masks secrets)
 
@@ -280,7 +282,18 @@ When Pinecone API credentials are not provided, DocMind uses a lightweight, zero
 
 $$\text{Scores} = \frac{M \cdot q}{\|M\| \times \|q\|}$$
 
-This executes vector queries across thousands of embedded chunks in less than **5 milliseconds**.
+### 4. Agentic Corrective RAG (CRAG) & Query Decomposition
+Standard RAG systems retrieve documents blindly and pass them directly to the LLM. DocMind introduces an active agentic reasoning cycle:
+1. **Prompt Sanitization & Guardrails**: User queries pass through regex and semantic safety filters to prevent prompt injection and instruction hijacking.
+2. **Semantic Cache Evaluation**: Exact and near-duplicate queries are served instantly from the vector similarity cache (`<15ms`).
+3. **Query Decomposition**: Complex multi-part queries are decomposed into parallel sub-queries (`decompose_query()`).
+4. **CRAG Evaluation & Self-Correction**: Retrieved passages are graded for topical relevance. If context relevance falls below threshold, the system triggers query rewriting or HyDE (Hypothetical Document Embeddings) expansion.
+
+### 5. Visual Grounding, Confidence Telemetry & Page Inspector
+To eliminate the "black box" nature of AI answers:
+- **Interactive Citation Badges**: In-text `[Doc • p.X]` badges render hover popovers displaying the chunk confidence score and exact snippet text.
+- **Page Inspector Modal**: Clicking any citation opens the document viewer focused directly on the cited page with real-time text matching and query keyword highlights.
+- **Executive Grounding Panel**: The right-side telemetry panel presents verified quotes, confidence gauges, and one-click clipboard copying for auditing every single claim made by the assistant.
 
 ---
 
